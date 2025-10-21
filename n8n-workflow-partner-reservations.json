@@ -1,0 +1,494 @@
+{
+  "name": "Partner Reservation Upload Automation",
+  "nodes": [
+    {
+      "parameters": {
+        "pollTimes": {
+          "item": [
+            {
+              "mode": "everyMinute"
+            }
+          ]
+        },
+        "postProcessAction": "nothing",
+        "options": {
+          "customEmailConfig": "imap.gmail.com",
+          "allowUnauthorizedCerts": false,
+          "forceReconnect": 600
+        }
+      },
+      "id": "imap-trigger",
+      "name": "IMAP Email Trigger",
+      "type": "n8n-nodes-base.emailReadImap",
+      "typeVersion": 2,
+      "position": [240, 300],
+      "credentials": {
+        "imap": {
+          "id": "1",
+          "name": "Email IMAP Credentials"
+        }
+      },
+      "webhookId": "",
+      "onError": "continueErrorOutput"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.from.address }}",
+              "operation": "contains",
+              "value2": "={{ $env.PARTNER_EMAIL_DOMAIN }}"
+            },
+            {
+              "value1": "={{ $json.subject }}",
+              "operation": "contains",
+              "value2": "Reservation Request"
+            }
+          ],
+          "boolean": [
+            {
+              "value1": "={{ $json.unseen }}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "filter-emails",
+      "name": "Filter: Reservation Requests",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [460, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Extract reservation link from email HTML body\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  try {\n    const htmlBody = item.json.html || item.json.textHtml || '';\n    const textBody = item.json.text || item.json.textPlain || '';\n    \n    // Try multiple regex patterns to find reservation links\n    const patterns = [\n      /href=[\"'](https?:\\/\\/[^\"'\\s]+reservation[^\"'\\s]*)[\"']/gi,\n      /href=[\"'](https?:\\/\\/[^\"'\\s]+\\.pdf)[\"']/gi,\n      /(https?:\\/\\/\\S+reservation\\S*)/gi,\n      /(https?:\\/\\/\\S+\\.pdf)/gi\n    ];\n    \n    let reservationLink = null;\n    \n    for (const pattern of patterns) {\n      const matches = htmlBody.match(pattern);\n      if (matches && matches.length > 0) {\n        // Extract clean URL from href attribute or direct match\n        if (matches[0].includes('href=')) {\n          const urlMatch = matches[0].match(/href=[\"'](https?:\\/\\/[^\"'\\s]+)[\"']/);\n          reservationLink = urlMatch ? urlMatch[1] : null;\n        } else {\n          reservationLink = matches[0];\n        }\n        break;\n      }\n    }\n    \n    // Fallback: try text body\n    if (!reservationLink && textBody) {\n      const textMatch = textBody.match(/(https?:\\/\\/\\S+)/gi);\n      if (textMatch && textMatch.length > 0) {\n        reservationLink = textMatch[0];\n      }\n    }\n    \n    if (!reservationLink) {\n      throw new Error('No reservation link found in email body');\n    }\n    \n    results.push({\n      json: {\n        ...item.json,\n        reservationLink: reservationLink.trim(),\n        emailId: item.json.uid || item.json.messageId,\n        extractedAt: new Date().toISOString()\n      }\n    });\n    \n  } catch (error) {\n    results.push({\n      json: {\n        ...item.json,\n        error: error.message,\n        status: 'EXTRACTION_FAILED'\n      }\n    });\n  }\n}\n\nreturn results;"
+      },
+      "id": "extract-link",
+      "name": "Extract Reservation Link",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [680, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.reservationLink }}",
+        "options": {
+          "redirect": {
+            "redirect": {
+              "followRedirects": true,
+              "maxRedirects": 5
+            }
+          },
+          "timeout": 30000
+        }
+      },
+      "id": "fetch-page",
+      "name": "Fetch Reservation Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [900, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Check if response is HTML page containing PDF link, or direct PDF\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  try {\n    const contentType = item.json.headers['content-type'] || '';\n    const url = item.json.reservationLink;\n    \n    let pdfUrl = url;\n    \n    // If HTML page, extract PDF link\n    if (contentType.includes('text/html')) {\n      const html = item.binary?.data?.toString('utf-8') || item.json.data || '';\n      \n      // Look for PDF links in HTML\n      const pdfPatterns = [\n        /<a[^>]+href=[\"'](https?:\\/\\/[^\"']+\\.pdf)[\"']/gi,\n        /href=[\"'](https?:\\/\\/[^\"']+\\.pdf)[\"']/gi,\n        /(https?:\\/\\/\\S+\\.pdf)/gi\n      ];\n      \n      for (const pattern of pdfPatterns) {\n        const matches = html.match(pattern);\n        if (matches && matches.length > 0) {\n          const urlMatch = matches[0].match(/https?:\\/\\/[^\"'\\s]+\\.pdf/i);\n          if (urlMatch) {\n            pdfUrl = urlMatch[0];\n            break;\n          }\n        }\n      }\n    }\n    \n    results.push({\n      json: {\n        ...item.json,\n        pdfUrl: pdfUrl,\n        isPdfDirect: pdfUrl === url\n      }\n    });\n    \n  } catch (error) {\n    results.push({\n      json: {\n        ...item.json,\n        error: error.message,\n        status: 'PDF_URL_EXTRACTION_FAILED'\n      }\n    });\n  }\n}\n\nreturn results;"
+      },
+      "id": "extract-pdf-url",
+      "name": "Extract PDF URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1120, 300]
+    },
+    {
+      "parameters": {
+        "url": "={{ $json.pdfUrl }}",
+        "options": {
+          "response": {
+            "response": {
+              "responseFormat": "file"
+            }
+          },
+          "timeout": 60000
+        }
+      },
+      "id": "download-pdf",
+      "name": "Download PDF",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 3,
+      "position": [1340, 300],
+      "retryOnFail": true,
+      "maxTries": 3,
+      "waitBetweenTries": 2000
+    },
+    {
+      "parameters": {
+        "jsCode": "// Parse PDF and extract reservation fields\n// Requires: pdf-parse (install via npm in n8n environment)\nconst pdfParse = require('pdf-parse');\n\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  try {\n    // Get binary PDF data\n    const binaryData = await this.helpers.getBinaryDataBuffer(0, 'data');\n    \n    // Parse PDF\n    const pdfData = await pdfParse(binaryData);\n    const text = pdfData.text;\n    \n    // Enhanced parsing with robust field extraction\n    // Handle both English and Korean labels, various spacing, and punctuation\n    \n    // Customer Name\n    const namePatterns = [\n      /(?:Customer|Name|고객명|예약자)[\\s:：]+([^\\n\\r]+)/i,\n      /(?:Guest)[\\s:：]+([^\\n\\r]+)/i\n    ];\n    let customerName = null;\n    for (const pattern of namePatterns) {\n      const match = text.match(pattern);\n      if (match) {\n        customerName = match[1].trim();\n        break;\n      }\n    }\n    \n    // Check-in Date (handles YY/MM/DD or YYYY/MM/DD)\n    const checkinPatterns = [\n      /(?:Check-?in|체크인|입실)[\\s:：]+(\\d{2,4}\\/\\d{2}\\/\\d{2})/i,\n      /(?:Arrival)[\\s:：]+(\\d{2,4}\\/\\d{2}\\/\\d{2})/i\n    ];\n    let checkinRaw = null;\n    for (const pattern of checkinPatterns) {\n      const match = text.match(pattern);\n      if (match) {\n        checkinRaw = match[1].trim();\n        break;\n      }\n    }\n    \n    // Rooms (integer)\n    const roomsPatterns = [\n      /(?:Rooms?|객실)[\\s:：]+(\\d+)/i,\n      /(?:Room Count)[\\s:：]+(\\d+)/i\n    ];\n    let rooms = null;\n    for (const pattern of roomsPatterns) {\n      const match = text.match(pattern);\n      if (match) {\n        rooms = parseInt(match[1].trim(), 10);\n        break;\n      }\n    }\n    \n    // Nights (integer)\n    const nightsPatterns = [\n      /(?:Nights?|박)[\\s:：]+(\\d+)/i,\n      /(\\d+)[\\s]*(?:Nights?|박)/i\n    ];\n    let nights = null;\n    for (const pattern of nightsPatterns) {\n      const match = text.match(pattern);\n      if (match) {\n        nights = parseInt(match[1].trim(), 10);\n        break;\n      }\n    }\n    \n    // Ordered At (YYYY/MM/DD HH:mm)\n    const orderedAtPatterns = [\n      /(?:Ordered|Reserved|예약일시|신청일)[\\s:：]+(\\d{4}\\/\\d{2}\\/\\d{2}[\\s]+\\d{2}:\\d{2})/i,\n      /(?:Request Date)[\\s:：]+(\\d{4}\\/\\d{2}\\/\\d{2}[\\s]+\\d{2}:\\d{2})/i\n    ];\n    let orderedAtRaw = null;\n    for (const pattern of orderedAtPatterns) {\n      const match = text.match(pattern);\n      if (match) {\n        orderedAtRaw = match[1].trim();\n        break;\n      }\n    }\n    \n    // Hotel Name (optional, for fuzzy matching)\n    const hotelPatterns = [\n      /(?:Hotel|호텔명)[\\s:：]+([^\\n\\r]+)/i,\n      /(?:Property)[\\s:：]+([^\\n\\r]+)/i\n    ];\n    let hotelNameRaw = null;\n    for (const pattern of hotelPatterns) {\n      const match = text.match(pattern);\n      if (match) {\n        hotelNameRaw = match[1].trim();\n        break;\n      }\n    }\n    \n    // Validation\n    const missingFields = [];\n    if (!customerName) missingFields.push('customer_name');\n    if (!checkinRaw) missingFields.push('checkin');\n    if (!rooms) missingFields.push('rooms');\n    if (!nights) missingFields.push('nights');\n    if (!orderedAtRaw) missingFields.push('ordered_at');\n    \n    if (missingFields.length > 0) {\n      throw new Error(`Missing required fields: ${missingFields.join(', ')}`);\n    }\n    \n    results.push({\n      json: {\n        ...item.json,\n        parsedData: {\n          customer_name: customerName,\n          checkin_raw: checkinRaw,\n          rooms: rooms,\n          nights: nights,\n          ordered_at_raw: orderedAtRaw,\n          hotel_name_en_raw: hotelNameRaw\n        },\n        pdfText: text,\n        parseStatus: 'SUCCESS'\n      }\n    });\n    \n  } catch (error) {\n    results.push({\n      json: {\n        ...item.json,\n        error: error.message,\n        status: 'PDF_PARSE_FAILED',\n        parseStatus: 'FAILED'\n      }\n    });\n  }\n}\n\nreturn results;"
+      },
+      "id": "parse-pdf",
+      "name": "Parse PDF Content",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1560, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Normalize date formats to ISO standards\nconst items = $input.all();\nconst results = [];\n\nfunction normalizeCheckin(rawDate) {\n  // Pattern: YY/MM/DD (e.g., 25/07/12)\n  const yyPattern = /^(\\d{2})\\/(\\d{2})\\/(\\d{2})$/;\n  // Pattern: YYYY/MM/DD (e.g., 2025/07/12)\n  const yyyyPattern = /^(\\d{4})\\/(\\d{2})\\/(\\d{2})$/;\n  \n  if (yyPattern.test(rawDate)) {\n    const [, yy, mm, dd] = rawDate.match(yyPattern);\n    // Assume 20XX for years < 70, 19XX for years >= 70\n    const yyyy = parseInt(yy, 10) < 70 ? `20${yy}` : `19${yy}`;\n    return `${yyyy}-${mm}-${dd}`;\n  }\n  \n  if (yyyyPattern.test(rawDate)) {\n    const [, yyyy, mm, dd] = rawDate.match(yyyyPattern);\n    return `${yyyy}-${mm}-${dd}`;\n  }\n  \n  throw new Error(`Unsupported check-in date format: ${rawDate}`);\n}\n\nfunction normalizeOrderedAt(rawDateTime) {\n  // Pattern: YYYY/MM/DD HH:mm (e.g., 2025/09/19 14:12)\n  // Simply replace / with -\n  const pattern = /^(\\d{4})\\/(\\d{2})\\/(\\d{2})([\\s]+\\d{2}:\\d{2})$/;\n  \n  if (pattern.test(rawDateTime)) {\n    return rawDateTime.replace(/\\//g, '-');\n  }\n  \n  throw new Error(`Unsupported ordered_at format: ${rawDateTime}`);\n}\n\nfor (const item of items) {\n  try {\n    const parsed = item.json.parsedData;\n    \n    const checkin = normalizeCheckin(parsed.checkin_raw);\n    const orderedAt = normalizeOrderedAt(parsed.ordered_at_raw);\n    \n    results.push({\n      json: {\n        ...item.json,\n        normalizedData: {\n          customer_name: parsed.customer_name,\n          checkin: checkin,\n          rooms: parsed.rooms,\n          nights: parsed.nights,\n          ordered_at: orderedAt,\n          hotel_name_en_raw: parsed.hotel_name_en_raw\n        },\n        normalizationStatus: 'SUCCESS'\n      }\n    });\n    \n  } catch (error) {\n    results.push({\n      json: {\n        ...item.json,\n        error: error.message,\n        status: 'DATE_NORMALIZATION_FAILED'\n      }\n    });\n  }\n}\n\nreturn results;"
+      },
+      "id": "normalize-dates",
+      "name": "Normalize Dates",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1780, 300]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "filePath": "={{ $env.HOTEL_MASTER_PATH }}",
+        "sheetName": "Hotels",
+        "options": {
+          "range": "",
+          "includeEmptyCells": false
+        }
+      },
+      "id": "load-hotel-master",
+      "name": "Load Hotel Master",
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 1,
+      "position": [2000, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Fuzzy match hotel name using Levenshtein distance\n// Returns best match or flags for manual review\n\nconst items = $input.all();\nconst results = [];\n\n// Levenshtein distance implementation\nfunction levenshteinDistance(str1, str2) {\n  const matrix = [];\n  \n  for (let i = 0; i <= str2.length; i++) {\n    matrix[i] = [i];\n  }\n  \n  for (let j = 0; j <= str1.length; j++) {\n    matrix[0][j] = j;\n  }\n  \n  for (let i = 1; i <= str2.length; i++) {\n    for (let j = 1; j <= str1.length; j++) {\n      if (str2.charAt(i - 1) === str1.charAt(j - 1)) {\n        matrix[i][j] = matrix[i - 1][j - 1];\n      } else {\n        matrix[i][j] = Math.min(\n          matrix[i - 1][j - 1] + 1,\n          matrix[i][j - 1] + 1,\n          matrix[i - 1][j] + 1\n        );\n      }\n    }\n  }\n  \n  return matrix[str2.length][str1.length];\n}\n\nfunction similarity(str1, str2) {\n  const longer = str1.length > str2.length ? str1 : str2;\n  const shorter = str1.length > str2.length ? str2 : str1;\n  \n  if (longer.length === 0) {\n    return 1.0;\n  }\n  \n  return (longer.length - levenshteinDistance(longer, shorter)) / longer.length;\n}\n\n// Get hotel master data (assumes last item contains all hotel records)\nconst hotelMasterItems = items.filter(item => item.json.hotel_name_en);\n\nfor (const item of items) {\n  try {\n    // Skip hotel master records themselves\n    if (item.json.hotel_name_en && !item.json.normalizedData) {\n      continue;\n    }\n    \n    const normalized = item.json.normalizedData;\n    const searchName = normalized.hotel_name_en_raw;\n    \n    if (!searchName) {\n      throw new Error('No hotel name found in PDF for matching');\n    }\n    \n    // Perform fuzzy matching\n    let bestMatch = null;\n    let bestScore = 0;\n    const threshold = parseFloat(process.env.HOTEL_MATCH_THRESHOLD || '0.85');\n    \n    for (const hotelRecord of hotelMasterItems) {\n      const masterName = hotelRecord.json.hotel_name_en;\n      const score = similarity(\n        searchName.toLowerCase().trim(),\n        masterName.toLowerCase().trim()\n      );\n      \n      if (score > bestScore) {\n        bestScore = score;\n        bestMatch = hotelRecord.json;\n      }\n    }\n    \n    // Check if match meets threshold\n    if (bestScore >= threshold && bestMatch) {\n      results.push({\n        json: {\n          ...item.json,\n          hotelMapping: {\n            hotel_name_en: bestMatch.hotel_name_en,\n            hotel_code: bestMatch.hotel_code,\n            product_code: bestMatch.product_code,\n            match_score: bestScore,\n            search_name: searchName\n          },\n          mappingStatus: 'MATCHED'\n        }\n      });\n    } else {\n      // Needs manual review\n      results.push({\n        json: {\n          ...item.json,\n          hotelMapping: {\n            hotel_name_en: bestMatch ? bestMatch.hotel_name_en : 'NO_MATCH',\n            hotel_code: null,\n            product_code: null,\n            match_score: bestScore,\n            search_name: searchName\n          },\n          mappingStatus: 'NEEDS_REVIEW',\n          error: `Hotel match score ${bestScore.toFixed(2)} below threshold ${threshold}`\n        }\n      });\n    }\n    \n  } catch (error) {\n    results.push({\n      json: {\n        ...item.json,\n        error: error.message,\n        status: 'HOTEL_MATCHING_FAILED',\n        mappingStatus: 'FAILED'\n      }\n    });\n  }\n}\n\nreturn results.filter(r => r.json.normalizedData); // Filter out hotel master records"
+      },
+      "id": "fuzzy-match-hotel",
+      "name": "Fuzzy Match Hotel",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2220, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{ $json.mappingStatus }}",
+              "operation": "equals",
+              "value2": "MATCHED"
+            }
+          ]
+        }
+      },
+      "id": "route-mapping-status",
+      "name": "Route: Mapping Status",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [2440, 300]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Prepare Excel data for successful matches\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const normalized = item.json.normalizedData;\n  const mapping = item.json.hotelMapping;\n  \n  // Generate output filename with timestamp\n  const now = new Date();\n  const timestamp = now.toISOString().replace(/[-:]/g, '').replace('T', '_').split('.')[0];\n  const outputDir = process.env.OUTPUT_DIR || '/tmp';\n  const outputPath = `${outputDir}/reservation_upload_${timestamp}.xlsx`;\n  \n  results.push({\n    json: {\n      ...item.json,\n      excelData: {\n        customer_name: normalized.customer_name,\n        checkin: normalized.checkin,\n        rooms: normalized.rooms,\n        nights: normalized.nights,\n        ordered_at: normalized.ordered_at,\n        hotel_name_en: mapping.hotel_name_en,\n        hotel_code: mapping.hotel_code,\n        product_code: mapping.product_code\n      },\n      outputPath: outputPath,\n      timestamp: timestamp\n    }\n  });\n}\n\nreturn results;"
+      },
+      "id": "prepare-excel-data",
+      "name": "Prepare Excel Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [2660, 200]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "filePath": "={{ $json.outputPath }}",
+        "sheetName": "Reservations",
+        "options": {
+          "useTemplate": true,
+          "templateFilePath": "={{ $env.RESERVATION_TEMPLATE_PATH }}",
+          "headerRow": 1
+        },
+        "data": "={{ JSON.stringify([{\n  \"customer_name\": $json.excelData.customer_name,\n  \"checkin\": $json.excelData.checkin,\n  \"rooms\": $json.excelData.rooms,\n  \"nights\": $json.excelData.nights,\n  \"ordered_at\": $json.excelData.ordered_at,\n  \"hotel_name_en\": $json.excelData.hotel_name_en,\n  \"hotel_code\": $json.excelData.hotel_code,\n  \"product_code\": $json.excelData.product_code\n}]) }}"
+      },
+      "id": "write-excel-upload",
+      "name": "Write Excel Upload File",
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 1,
+      "position": [2880, 200]
+    },
+    {
+      "parameters": {
+        "jsCode": "// Playwright automation for admin portal upload\n// This script handles the full browser automation flow\n\nconst { chromium } = require('playwright');\nconst fs = require('fs');\nconst path = require('path');\n\nconst items = $input.all();\nconst results = [];\n\nfor (const item of items) {\n  const filePath = item.json.outputPath;\n  const adminUser = process.env.ADMIN_USER;\n  const adminPass = process.env.ADMIN_PASS;\n  const outputDir = process.env.OUTPUT_DIR || '/tmp';\n  \n  let browser = null;\n  let uploadSuccess = false;\n  \n  try {\n    // Validate file exists\n    if (!fs.existsSync(filePath)) {\n      throw new Error(`Excel file not found: ${filePath}`);\n    }\n    \n    // Launch browser\n    browser = await chromium.launch({\n      headless: process.env.PLAYWRIGHT_HEADLESS !== 'false',\n      args: ['--no-sandbox', '--disable-setuid-sandbox']\n    });\n    \n    const context = await browser.newContext({\n      viewport: { width: 1280, height: 900 },\n      userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'\n    });\n    \n    const page = await context.newPage();\n    \n    // Enable console logging for debugging\n    page.on('console', msg => console.log('Browser console:', msg.text()));\n    \n    // Step 1: Navigate to admin portal\n    console.log('Navigating to admin portal...');\n    await page.goto('https://adm.allmytour.com', {\n      waitUntil: 'domcontentloaded',\n      timeout: 30000\n    });\n    \n    // Take screenshot for debugging\n    await page.screenshot({ path: `${outputDir}/01_login_page.png` });\n    \n    // Step 2: Login\n    console.log('Logging in...');\n    await page.waitForSelector('input[name=\"username\"], input[type=\"text\"]', { timeout: 10000 });\n    await page.fill('input[name=\"username\"], input[type=\"text\"]', adminUser);\n    await page.fill('input[name=\"password\"], input[type=\"password\"]', adminPass);\n    \n    // Click login button (try multiple selectors)\n    const loginSelectors = [\n      'button:has-text(\"로그인\")',\n      'button[type=\"submit\"]',\n      'input[type=\"submit\"]',\n      'button.login-btn'\n    ];\n    \n    let loginClicked = false;\n    for (const selector of loginSelectors) {\n      try {\n        await page.click(selector, { timeout: 2000 });\n        loginClicked = true;\n        break;\n      } catch (e) {\n        continue;\n      }\n    }\n    \n    if (!loginClicked) {\n      throw new Error('Could not find login button');\n    }\n    \n    // Wait for navigation after login\n    await page.waitForLoadState('networkidle', { timeout: 15000 });\n    await page.screenshot({ path: `${outputDir}/02_after_login.png` });\n    \n    // Step 3: Navigate to 판매관리 (Sales Management)\n    console.log('Navigating to Sales Management...');\n    await page.waitForSelector('text=판매관리', { timeout: 10000 });\n    await page.click('text=판매관리');\n    await page.waitForTimeout(1000);\n    await page.screenshot({ path: `${outputDir}/03_sales_menu.png` });\n    \n    // Step 4: Navigate to 예약목록 (Reservation List)\n    console.log('Navigating to Reservation List...');\n    await page.waitForSelector('text=예약목록', { timeout: 10000 });\n    await page.click('text=예약목록');\n    await page.waitForLoadState('networkidle', { timeout: 15000 });\n    await page.screenshot({ path: `${outputDir}/04_reservation_list.png` });\n    \n    // Step 5: Scroll to bottom to find upload section\n    console.log('Scrolling to upload section...');\n    await page.evaluate(() => {\n      window.scrollTo(0, document.body.scrollHeight);\n    });\n    await page.waitForTimeout(1000);\n    await page.screenshot({ path: `${outputDir}/05_scroll_bottom.png` });\n    \n    // Step 6: Find and populate file input\n    console.log('Uploading file...');\n    await page.waitForSelector('input[type=\"file\"]', { timeout: 10000 });\n    const fileInput = await page.$('input[type=\"file\"]');\n    \n    if (!fileInput) {\n      throw new Error('File input not found');\n    }\n    \n    await fileInput.setInputFiles(filePath);\n    await page.waitForTimeout(2000);\n    await page.screenshot({ path: `${outputDir}/06_file_selected.png` });\n    \n    // Step 7: Click 예약등록 (Register Reservation) button\n    console.log('Clicking Register button...');\n    const registerSelectors = [\n      'button:has-text(\"예약등록\")',\n      'input:has-text(\"예약등록\")',\n      'button.register-btn',\n      'button[type=\"submit\"]:has-text(\"등록\")'\n    ];\n    \n    let registerClicked = false;\n    for (const selector of registerSelectors) {\n      try {\n        await page.click(selector, { timeout: 2000 });\n        registerClicked = true;\n        break;\n      } catch (e) {\n        continue;\n      }\n    }\n    \n    if (!registerClicked) {\n      throw new Error('Could not find register button');\n    }\n    \n    await page.waitForTimeout(2000);\n    \n    // Step 8: Handle popup modal - click 취소 (Cancel)\n    console.log('Handling confirmation modal...');\n    try {\n      await page.waitForSelector('.modal-dialog, [role=\"dialog\"], .modal', { timeout: 10000 });\n      await page.screenshot({ path: `${outputDir}/07_modal_appeared.png` });\n      \n      const cancelSelectors = [\n        'button:has-text(\"취소\")',\n        '.modal button:has-text(\"취소\")',\n        '[role=\"dialog\"] button:has-text(\"취소\")',\n        'button.cancel-btn'\n      ];\n      \n      let cancelClicked = false;\n      for (const selector of cancelSelectors) {\n        try {\n          await page.click(selector, { timeout: 2000 });\n          cancelClicked = true;\n          break;\n        } catch (e) {\n          continue;\n        }\n      }\n      \n      if (!cancelClicked) {\n        console.warn('Could not find cancel button, modal might have auto-closed');\n      }\n      \n      await page.waitForTimeout(1000);\n      await page.screenshot({ path: `${outputDir}/08_final_state.png` });\n      \n    } catch (modalError) {\n      console.warn('Modal handling error (may be expected):', modalError.message);\n      await page.screenshot({ path: `${outputDir}/08_no_modal.png` });\n    }\n    \n    uploadSuccess = true;\n    console.log('Upload automation completed successfully');\n    \n    results.push({\n      json: {\n        ...item.json,\n        uploadStatus: 'SUCCESS',\n        uploadTimestamp: new Date().toISOString()\n      }\n    });\n    \n  } catch (error) {\n    console.error('Upload automation error:', error);\n    \n    // Capture error screenshot\n    if (browser) {\n      try {\n        const pages = await browser.contexts()[0].pages();\n        if (pages.length > 0) {\n          await pages[0].screenshot({ path: `${outputDir}/error_screenshot.png` });\n        }\n      } catch (screenshotError) {\n        console.error('Could not capture error screenshot:', screenshotError);\n      }\n    }\n    \n    results.push({\n      json: {\n        ...item.json,\n        uploadStatus: 'FAILED',\n        uploadError: error.message,\n        uploadTimestamp: new Date().toISOString()\n      }\n    });\n    \n  } finally {\n    if (browser) {\n      await browser.close();\n    }\n  }\n}\n\nreturn results;"
+      },
+      "id": "admin-upload-playwright",
+      "name": "Admin Upload (Playwright)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [3100, 200],
+      "retryOnFail": true,
+      "maxTries": 2,
+      "waitBetweenTries": 5000
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "filePath": "={{ $env.OUTPUT_DIR }}/mapping_required_{{ $now }}.xlsx",
+        "sheetName": "NeedsReview",
+        "data": "={{ JSON.stringify([{\n  \"customer_name\": $json.normalizedData.customer_name,\n  \"checkin\": $json.normalizedData.checkin,\n  \"rooms\": $json.normalizedData.rooms,\n  \"nights\": $json.normalizedData.nights,\n  \"ordered_at\": $json.normalizedData.ordered_at,\n  \"hotel_name_searched\": $json.hotelMapping.search_name,\n  \"best_match\": $json.hotelMapping.hotel_name_en,\n  \"match_score\": $json.hotelMapping.match_score,\n  \"status\": \"NEEDS_MANUAL_REVIEW\"\n}]) }}"
+      },
+      "id": "write-manual-review",
+      "name": "Write Manual Review File",
+      "type": "n8n-nodes-base.spreadsheetFile",
+      "typeVersion": 1,
+      "position": [2660, 400]
+    },
+    {
+      "parameters": {
+        "authentication": "oAuth2",
+        "resource": "message",
+        "operation": "addLabels",
+        "messageId": "={{ $json.emailId }}",
+        "labelIds": ["INBOX/processed", "processed/reservation"]
+      },
+      "id": "mark-email-processed",
+      "name": "Mark Email Processed",
+      "type": "n8n-nodes-base.gmail",
+      "typeVersion": 1,
+      "position": [3320, 200],
+      "credentials": {
+        "gmailOAuth2": {
+          "id": "2",
+          "name": "Gmail OAuth2 Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_CHANNEL || '#reservations' }}",
+        "text": "=✅ *Reservation Upload Success*\\n\\n*Customer:* {{ $json.excelData.customer_name }}\\n*Check-in:* {{ $json.excelData.checkin }}\\n*Hotel:* {{ $json.hotelMapping.hotel_name_en }}\\n*File:* {{ $json.outputPath }}\\n*Timestamp:* {{ $json.uploadTimestamp }}",
+        "otherOptions": {}
+      },
+      "id": "notify-success",
+      "name": "Notify Success (Slack)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 1,
+      "position": [3540, 200],
+      "credentials": {
+        "slackApi": {
+          "id": "3",
+          "name": "Slack API Credentials"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "channel": "={{ $env.SLACK_CHANNEL || '#reservations' }}",
+        "text": "=⚠️ *Manual Review Required*\\n\\n*Customer:* {{ $json.normalizedData.customer_name }}\\n*Hotel Searched:* {{ $json.hotelMapping.search_name }}\\n*Best Match:* {{ $json.hotelMapping.hotel_name_en }} (score: {{ $json.hotelMapping.match_score }})\\n*Status:* NEEDS_REVIEW\\n*File:* {{ $env.OUTPUT_DIR }}/mapping_required_{{ $now }}.xlsx",
+        "otherOptions": {}
+      },
+      "id": "notify-review",
+      "name": "Notify Manual Review (Slack)",
+      "type": "n8n-nodes-base.slack",
+      "typeVersion": 1,
+      "position": [2880, 400],
+      "credentials": {
+        "slackApi": {
+          "id": "3",
+          "name": "Slack API Credentials"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "IMAP Email Trigger": {
+      "main": [
+        [
+          {
+            "node": "Filter: Reservation Requests",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Filter: Reservation Requests": {
+      "main": [
+        [
+          {
+            "node": "Extract Reservation Link",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Reservation Link": {
+      "main": [
+        [
+          {
+            "node": "Fetch Reservation Page",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fetch Reservation Page": {
+      "main": [
+        [
+          {
+            "node": "Extract PDF URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract PDF URL": {
+      "main": [
+        [
+          {
+            "node": "Download PDF",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Download PDF": {
+      "main": [
+        [
+          {
+            "node": "Parse PDF Content",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse PDF Content": {
+      "main": [
+        [
+          {
+            "node": "Normalize Dates",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Normalize Dates": {
+      "main": [
+        [
+          {
+            "node": "Load Hotel Master",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Load Hotel Master": {
+      "main": [
+        [
+          {
+            "node": "Fuzzy Match Hotel",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Fuzzy Match Hotel": {
+      "main": [
+        [
+          {
+            "node": "Route: Mapping Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route: Mapping Status": {
+      "main": [
+        [
+          {
+            "node": "Prepare Excel Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Write Manual Review File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Excel Data": {
+      "main": [
+        [
+          {
+            "node": "Write Excel Upload File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Excel Upload File": {
+      "main": [
+        [
+          {
+            "node": "Admin Upload (Playwright)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Admin Upload (Playwright)": {
+      "main": [
+        [
+          {
+            "node": "Mark Email Processed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Mark Email Processed": {
+      "main": [
+        [
+          {
+            "node": "Notify Success (Slack)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Manual Review File": {
+      "main": [
+        [
+          {
+            "node": "Notify Manual Review (Slack)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2025-10-21T00:00:00.000Z",
+  "versionId": "1"
+}

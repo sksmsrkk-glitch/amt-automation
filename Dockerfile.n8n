@@ -1,0 +1,51 @@
+# Custom n8n Docker image with Playwright and pdf-parse
+# This Dockerfile builds an n8n image with all required dependencies for the reservation automation workflow
+
+FROM n8nio/n8n:latest
+
+USER root
+
+# Install system dependencies for Playwright
+RUN apk add --no-cache \
+    chromium \
+    nss \
+    freetype \
+    harfbuzz \
+    ca-certificates \
+    ttf-freefont \
+    nodejs \
+    yarn \
+    python3 \
+    make \
+    g++ \
+    && rm -rf /var/cache/apk/*
+
+# Set Playwright environment variables to use system Chromium
+ENV PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD=1
+ENV PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH=/usr/bin/chromium-browser
+
+# Switch to node user for npm installations
+USER node
+
+# Install required Node.js packages globally
+RUN cd /usr/local/lib/node_modules/n8n && \
+    npm install playwright@latest pdf-parse@latest --save
+
+# Alternative: Install in n8n user directory (sometimes needed for Code node access)
+RUN mkdir -p /home/node/.n8n/custom-modules && \
+    cd /home/node/.n8n/custom-modules && \
+    npm init -y && \
+    npm install playwright pdf-parse
+
+# Set working directory
+WORKDIR /home/node
+
+# Expose n8n port
+EXPOSE 5678
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=60s --retries=3 \
+  CMD node /usr/local/lib/node_modules/n8n/bin/n8n webhook --healthcheck
+
+# Entry point (inherited from base image)
+CMD ["n8n"]
