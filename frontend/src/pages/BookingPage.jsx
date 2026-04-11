@@ -238,6 +238,7 @@ export default function BookingPage() {
     name: '',
     email: '',
     phone: '',
+    guests: '2',
     specialRequests: '',
     nationality: '',
   })
@@ -340,8 +341,10 @@ export default function BookingPage() {
         guest_email: form.email,
         guest_phone: form.phone,
         special_requests: form.specialRequests,
+        nationality: form.nationality,
         total_price: total,
         quantity: quantity,
+        guests: type === 'hotel' ? parseInt(form.guests) : quantity,
       }
 
       if (type === 'hotel') {
@@ -452,6 +455,23 @@ export default function BookingPage() {
                 />
               </div>
             </div>
+
+            {type === 'hotel' && (
+              <div style={styles.formGroup}>
+                <label style={styles.label}>{t('booking.guests') || 'Number of Guests'}</label>
+                <select
+                  style={styles.input}
+                  value={form.guests}
+                  onChange={handleInput('guests')}
+                  onFocus={e => { e.target.style.borderColor = 'var(--primary)' }}
+                  onBlur={e => { e.target.style.borderColor = 'var(--border)' }}
+                >
+                  {[1, 2, 3, 4, 5, 6].map(n => (
+                    <option key={n} value={String(n)}>{n} {n === 1 ? 'guest' : 'guests'}</option>
+                  ))}
+                </select>
+              </div>
+            )}
 
             <div style={styles.formGroup}>
               <label style={styles.label}>{t('booking.nationality')}</label>

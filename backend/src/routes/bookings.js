@@ -29,7 +29,9 @@ router.post('/', (req, res) => {
       visit_date,
       guests,
       quantity,
-      special_requests
+      special_requests,
+      total_price,
+      nationality
     } = req.body;
 
     if (!guest_name || !guest_email || !product_type || !product_id) {
@@ -146,16 +148,21 @@ router.post('/', (req, res) => {
       db.prepare('UPDATE package_inventory SET booked_quantity = booked_quantity + ? WHERE package_id = ? AND date = ?').run(qty, product_id, visit_date);
     }
 
+    // Use frontend-provided total_price if available and valid, otherwise use backend calculation
+    if (total_price && total_price > 0) {
+      totalPrice = total_price;
+    }
+
     const bookingNumber = generateBookingNumber();
 
     const result = db.prepare(`
-      INSERT INTO bookings (booking_number, user_id, guest_name, guest_email, guest_phone, product_type, product_id, room_type_id, check_in, check_out, visit_date, guests, quantity, nights, total_price, special_requests)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      INSERT INTO bookings (booking_number, user_id, guest_name, guest_email, guest_phone, product_type, product_id, room_type_id, check_in, check_out, visit_date, guests, quantity, nights, total_price, special_requests, nationality)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       bookingNumber, userId, guest_name, guest_email, guest_phone || null,
       product_type, product_id, room_type_id || null,
       check_in || null, check_out || null, visit_date || null,
-      guestCount, qty, nights, totalPrice, special_requests || null
+      guestCount, qty, nights, totalPrice, special_requests || null, nationality || null
     );
 
     const bookingId = result.lastInsertRowid;

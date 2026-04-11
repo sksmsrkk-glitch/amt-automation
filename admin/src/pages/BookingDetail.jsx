@@ -8,6 +8,11 @@ export default function BookingDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
   const [booking, setBooking] = useState(null)
+  const [payment, setPayment] = useState(null)
+  const [voucher, setVoucher] = useState(null)
+  const [product, setProduct] = useState(null)
+  const [roomType, setRoomType] = useState(null)
+  const [bookingUser, setBookingUser] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [updating, setUpdating] = useState(false)
@@ -27,6 +32,11 @@ export default function BookingDetail() {
       const res = await get(`/admin/bookings/${id}`)
       const data = res.booking || res.data || res
       setBooking(data)
+      setPayment(res.payment || null)
+      setVoucher(res.voucher || null)
+      setProduct(res.product || null)
+      setRoomType(res.room_type || null)
+      setBookingUser(res.user || null)
       setStatusValue(data.status || '')
     } catch (err) {
       setError(err.message)
@@ -134,8 +144,8 @@ export default function BookingDetail() {
 
       <div className="page-header">
         <div>
-          <h1>Booking #{booking.booking_number || booking.bookingNumber}</h1>
-          <p>Created {formatDateTime(booking.created_at || booking.createdAt)}</p>
+          <h1>Booking #{booking.booking_number}</h1>
+          <p>Created {formatDateTime(booking.created_at)}</p>
         </div>
         <div className="btn-group">
           {canCancel && (
@@ -165,7 +175,7 @@ export default function BookingDetail() {
           <div className="info-grid">
             <div className="info-item">
               <span className="label">Booking Number</span>
-              <span className="value">{booking.booking_number || booking.bookingNumber || '-'}</span>
+              <span className="value">{booking.booking_number || '-'}</span>
             </div>
             <div className="info-item">
               <span className="label">Status</span>
@@ -173,21 +183,21 @@ export default function BookingDetail() {
             </div>
             <div className="info-item">
               <span className="label">Check-in</span>
-              <span className="value">{formatDate(booking.check_in || booking.checkInDate || booking.date)}</span>
+              <span className="value">{formatDate(booking.check_in)}</span>
             </div>
             <div className="info-item">
               <span className="label">Check-out</span>
-              <span className="value">{formatDate(booking.check_out || booking.checkOutDate)}</span>
+              <span className="value">{formatDate(booking.check_out)}</span>
             </div>
             <div className="info-item">
               <span className="label">Product Type</span>
               <span className="value" style={{ textTransform: 'capitalize' }}>
-                {booking.product_type || booking.productType || '-'}
+                {booking.product_type || '-'}
               </span>
             </div>
             <div className="info-item">
               <span className="label">Created</span>
-              <span className="value">{formatDateTime(booking.created_at || booking.createdAt)}</span>
+              <span className="value">{formatDateTime(booking.created_at)}</span>
             </div>
           </div>
 
@@ -225,37 +235,37 @@ export default function BookingDetail() {
             <div className="info-item">
               <span className="label">Name</span>
               <span className="value">
-                {booking.guest_name || booking.guestName || booking.user?.name || '-'}
+                {booking.guest_name || bookingUser?.name || '-'}
               </span>
             </div>
             <div className="info-item">
               <span className="label">Email</span>
               <span className="value">
-                {booking.guest_email || booking.guestEmail || booking.user?.email || '-'}
+                {booking.guest_email || bookingUser?.email || '-'}
               </span>
             </div>
             <div className="info-item">
               <span className="label">Phone</span>
               <span className="value">
-                {booking.guest_phone || booking.guestPhone || booking.user?.phone || '-'}
+                {booking.guest_phone || bookingUser?.phone || '-'}
               </span>
             </div>
             <div className="info-item">
               <span className="label">Nationality</span>
               <span className="value">
-                {booking.guest_nationality || booking.guestNationality || '-'}
+                {booking.nationality || bookingUser?.nationality || '-'}
               </span>
             </div>
             <div className="info-item">
               <span className="label">Guests</span>
               <span className="value">
-                {booking.guests || booking.guest_count || booking.guestCount || '-'}
+                {booking.guests || '-'}
               </span>
             </div>
             <div className="info-item">
               <span className="label">Special Requests</span>
               <span className="value">
-                {booking.special_requests || booking.specialRequests || 'None'}
+                {booking.special_requests || 'None'}
               </span>
             </div>
           </div>
@@ -268,25 +278,25 @@ export default function BookingDetail() {
             <div className="info-item">
               <span className="label">Product Name</span>
               <span className="value">
-                {booking.product_name || booking.productName || booking.product?.name_en || '-'}
+                {product?.name_en || '-'}
               </span>
             </div>
             <div className="info-item">
               <span className="label">Product Type</span>
               <span className="value" style={{ textTransform: 'capitalize' }}>
-                {booking.product_type || booking.productType || '-'}
+                {booking.product_type || '-'}
               </span>
             </div>
-            {(booking.room_type || booking.roomType) && (
+            {roomType && (
               <div className="info-item">
                 <span className="label">Room Type</span>
-                <span className="value">{booking.room_type || booking.roomType}</span>
+                <span className="value">{roomType.name_en || '-'}</span>
               </div>
             )}
-            {(booking.quantity || booking.ticket_count) && (
+            {booking.quantity && (
               <div className="info-item">
                 <span className="label">Quantity</span>
-                <span className="value">{booking.quantity || booking.ticket_count}</span>
+                <span className="value">{booking.quantity}</span>
               </div>
             )}
           </div>
@@ -299,14 +309,14 @@ export default function BookingDetail() {
             <div className="info-item">
               <span className="label">Total Amount</span>
               <span className="value" style={{ fontSize: '1.2rem', fontWeight: 700, color: '#3b82f6' }}>
-                {formatCurrency(booking.total_price || booking.total_amount)}
+                {formatCurrency(payment?.amount || booking.total_price)}
               </span>
             </div>
             <div className="info-item">
               <span className="label">Payment Status</span>
               <span className="value">
                 <StatusBadge
-                  status={booking.payment_status || booking.paymentStatus}
+                  status={booking.payment_status}
                   type="payment"
                 />
               </span>
@@ -314,13 +324,19 @@ export default function BookingDetail() {
             <div className="info-item">
               <span className="label">Payment Method</span>
               <span className="value" style={{ textTransform: 'capitalize' }}>
-                {booking.payment_method || booking.paymentMethod || '-'}
+                {payment?.method || '-'}
               </span>
             </div>
             <div className="info-item">
               <span className="label">Transaction ID</span>
               <span className="value" style={{ fontSize: '0.8rem', wordBreak: 'break-all' }}>
-                {booking.transaction_id || booking.transactionId || '-'}
+                {payment?.stripe_payment_id || '-'}
+              </span>
+            </div>
+            <div className="info-item">
+              <span className="label">Payment Date</span>
+              <span className="value">
+                {formatDateTime(payment?.created_at)}
               </span>
             </div>
           </div>
@@ -328,32 +344,30 @@ export default function BookingDetail() {
       </div>
 
       {/* Voucher Info */}
-      {(booking.voucher || booking.voucher_code || booking.voucherCode) && (
+      {voucher && (
         <div className="card" style={{ marginBottom: 20 }}>
           <h3 className="section-title">Voucher Information</h3>
           <div className="info-grid">
             <div className="info-item">
               <span className="label">Voucher Code</span>
               <span className="value" style={{ fontFamily: 'monospace', fontSize: '1.1rem', letterSpacing: '0.05em' }}>
-                {booking.voucher?.code || booking.voucher_code || booking.voucherCode || '-'}
+                {voucher.code || '-'}
               </span>
             </div>
             <div className="info-item">
               <span className="label">Voucher Status</span>
               <span className="value">
                 <StatusBadge
-                  status={booking.voucher?.status || booking.voucher_status || booking.voucherStatus || 'active'}
+                  status={voucher.status || 'active'}
                 />
               </span>
             </div>
-            {(booking.voucher?.qr_code || booking.qr_code || booking.qrCode) && (
+            {voucher.qr_data && (
               <div className="info-item">
-                <span className="label">QR Code</span>
-                <img
-                  src={booking.voucher?.qr_code || booking.qr_code || booking.qrCode}
-                  alt="QR Code"
-                  style={{ width: 120, height: 120, marginTop: 8, border: '1px solid #e2e8f0', borderRadius: 8, padding: 4 }}
-                />
+                <span className="label">Booking Details (QR Data)</span>
+                <div style={{ marginTop: 8, padding: 12, background: '#f8fafc', borderRadius: 8, border: '1px solid #e2e8f0', fontSize: '0.85rem', fontFamily: 'monospace', whiteSpace: 'pre-wrap', wordBreak: 'break-all' }}>
+                  {voucher.qr_data}
+                </div>
               </div>
             )}
           </div>

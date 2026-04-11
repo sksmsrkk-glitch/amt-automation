@@ -299,6 +299,7 @@ function initTables(db) {
     "ALTER TABLE tickets ADD COLUMN sort_order INTEGER DEFAULT 0",
     "ALTER TABLE packages ADD COLUMN is_featured INTEGER DEFAULT 0",
     "ALTER TABLE packages ADD COLUMN sort_order INTEGER DEFAULT 0",
+    "ALTER TABLE bookings ADD COLUMN nationality TEXT",
   ];
   for (const sql of alterStatements) {
     try { db.exec(sql); } catch (e) { /* column already exists */ }
