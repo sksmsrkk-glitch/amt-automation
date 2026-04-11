@@ -280,14 +280,14 @@ export default function BookingPage() {
 
     if (type === 'hotel') {
       let roomPrice = 0
-      const roomTypes = product.roomTypes || []
+      const roomTypes = product.room_types || product.roomTypes || []
       if (roomTypeId) {
-        const room = roomTypes.find(r => (r._id || r.id) === roomTypeId)
-        roomPrice = room ? (room.price || room.basePrice || 0) : 0
+        const room = roomTypes.find(r => String(r._id || r.id) === String(roomTypeId))
+        roomPrice = room ? (room.base_price || room.price || room.basePrice || 0) : 0
       } else if (roomTypes.length > 0) {
-        roomPrice = roomTypes[0].price || roomTypes[0].basePrice || 0
+        roomPrice = roomTypes[0].base_price || roomTypes[0].price || roomTypes[0].basePrice || 0
       } else {
-        roomPrice = product.price || product.basePrice || 0
+        roomPrice = product.base_price || product.price || product.basePrice || 0
       }
 
       if (checkIn && checkOut) {
@@ -298,14 +298,14 @@ export default function BookingPage() {
     }
 
     if (type === 'ticket') {
-      return (product.price || product.basePrice || 0) * quantity
+      return (product.base_price || product.price || product.basePrice || 0) * quantity
     }
 
     if (type === 'package') {
-      return (product.price || product.basePrice || 0) * quantity
+      return (product.base_price || product.price || product.basePrice || 0) * quantity
     }
 
-    return product.price || product.basePrice || 0
+    return product.base_price || product.price || product.basePrice || 0
   }
 
   const getNights = () => {
@@ -317,9 +317,9 @@ export default function BookingPage() {
 
   const getRoomTypeName = () => {
     if (!product || !roomTypeId) return ''
-    const roomTypes = product.roomTypes || []
-    const room = roomTypes.find(r => (r._id || r.id) === roomTypeId)
-    return room ? (room.name || room.type || '') : ''
+    const roomTypes = product.room_types || product.roomTypes || []
+    const room = roomTypes.find(r => String(r._id || r.id) === String(roomTypeId))
+    return room ? (room.name_en || room.name || room.type || '') : ''
   }
 
   const handleSubmit = async (e) => {
@@ -334,24 +334,26 @@ export default function BookingPage() {
 
     try {
       const bookingData = {
-        type,
-        productId: id,
-        guestName: form.name,
-        guestEmail: form.email,
-        guestPhone: form.phone,
-        specialRequests: form.specialRequests,
-        nationality: form.nationality,
+        product_type: type,
+        product_id: id,
+        guest_name: form.name,
+        guest_email: form.email,
+        guest_phone: form.phone,
+        special_requests: form.specialRequests,
+        total_price: total,
+        quantity: quantity,
       }
 
       if (type === 'hotel') {
-        bookingData.checkIn = checkIn
-        bookingData.checkOut = checkOut
-        if (roomTypeId) bookingData.roomTypeId = roomTypeId
+        bookingData.check_in = checkIn
+        bookingData.check_out = checkOut
+        if (roomTypeId) bookingData.room_type_id = roomTypeId
+        bookingData.nights = getNights()
       } else if (type === 'ticket') {
-        bookingData.visitDate = visitDate
+        bookingData.visit_date = visitDate
         bookingData.quantity = quantity
       } else if (type === 'package') {
-        bookingData.startDate = visitDate
+        bookingData.visit_date = visitDate
         bookingData.quantity = quantity
       }
 
@@ -542,7 +544,7 @@ export default function BookingPage() {
               <div style={{ marginBottom: 8 }}>
                 <div style={styles.summaryRow}>
                   <span style={styles.summaryLabel}>Unit Price</span>
-                  <span style={styles.summaryValue}>{'\u20A9'}{(product.price || product.basePrice || 0).toLocaleString()} / person</span>
+                  <span style={styles.summaryValue}>{'\u20A9'}{(product.base_price || product.price || product.basePrice || 0).toLocaleString()} / person</span>
                 </div>
                 {quantity > 1 && (
                   <div style={styles.summaryRow}>
@@ -558,15 +560,15 @@ export default function BookingPage() {
                 <div style={styles.summaryRow}>
                   <span style={styles.summaryLabel}>Room Rate</span>
                   <span style={styles.summaryValue}>{'\u20A9'}{(() => {
-                    const roomTypes = product.roomTypes || []
+                    const roomTypes = product.room_types || product.roomTypes || []
                     let roomPrice = 0
                     if (roomTypeId) {
-                      const room = roomTypes.find(r => (r._id || r.id) === roomTypeId)
-                      roomPrice = room ? (room.price || room.basePrice || 0) : 0
+                      const room = roomTypes.find(r => String(r._id || r.id) === String(roomTypeId))
+                      roomPrice = room ? (room.base_price || room.price || room.basePrice || 0) : 0
                     } else if (roomTypes.length > 0) {
-                      roomPrice = roomTypes[0].price || roomTypes[0].basePrice || 0
+                      roomPrice = roomTypes[0].base_price || roomTypes[0].price || roomTypes[0].basePrice || 0
                     } else {
-                      roomPrice = product.price || product.basePrice || 0
+                      roomPrice = product.base_price || product.price || product.basePrice || 0
                     }
                     return roomPrice.toLocaleString()
                   })()} / room / night</span>
