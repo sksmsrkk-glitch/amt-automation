@@ -1,3 +1,12 @@
+// ============================================================
+// 호텔 상세 페이지 (/hotels/:id)
+// ------------------------------------------------------------
+// 호텔 기본 정보, 이미지 갤러리, 객실 타입 목록을 표시한다.
+// 사용자가 체크인/체크아웃 날짜를 고르면 /availability 를 호출해
+// 각 객실의 재고와 총액을 계산해 보여준다.
+// "예약하기" 버튼은 /booking/hotel/:id 로 이동한다.
+// ============================================================
+
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -245,6 +254,7 @@ const styles = {
   },
 }
 
+// DB 의 images 컬럼은 JSON 문자열로 저장되므로 여러 형태에 대응한다.
 function parseImages(images) {
   if (!images) return []
   if (Array.isArray(images)) return images

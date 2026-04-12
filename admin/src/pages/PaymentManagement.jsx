@@ -1,3 +1,11 @@
+// ============================================================
+// 결제 관리 페이지 (/payments)
+// ------------------------------------------------------------
+// 전체 결제 내역을 필터/페이지네이션과 함께 표시하고,
+// 관리자가 결제 상태(pending/paid/refunded)를 수동 전환할 수 있다.
+// 상단에 결제 통계 KPI 카드도 함께 노출한다.
+// ============================================================
+
 import React, { useState, useEffect, useCallback } from 'react'
 import { get } from '../utils/api'
 import DataTable from '../components/DataTable'

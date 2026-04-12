@@ -1,9 +1,16 @@
+// ============================================================
+// 패키지 공개 API (/api/packages)
+// ------------------------------------------------------------
+// 호텔/티켓을 묶은 여행 패키지 상품 조회.
+// 상세 응답에는 package_items 에 연결된 실제 상품 정보도 함께 리졸브한다.
+// ============================================================
+
 const express = require('express');
 const { getDb } = require('../config/database');
 
 const router = express.Router();
 
-// GET / - list all active packages
+// GET / - 활성 패키지 목록 (검색 필터 지원)
 router.get('/', (req, res) => {
   try {
     const db = getDb();
@@ -34,7 +41,7 @@ router.get('/', (req, res) => {
   }
 });
 
-// GET /:id - package detail with included items
+// GET /:id - 패키지 상세 + 포함 상품(호텔/객실/티켓) 정보 리졸브
 router.get('/:id', (req, res) => {
   try {
     const db = getDb();
@@ -48,7 +55,7 @@ router.get('/:id', (req, res) => {
 
     const items = db.prepare('SELECT * FROM package_items WHERE package_id = ?').all(pkg.id);
 
-    // Resolve item details
+    // 각 패키지 아이템의 실제 상품 정보를 조회해 붙인다.
     const resolvedItems = items.map(item => {
       let detail = null;
       if (item.item_type === 'hotel') {
@@ -72,7 +79,7 @@ router.get('/:id', (req, res) => {
   }
 });
 
-// GET /:id/availability?date=
+// GET /:id/availability - 특정 날짜의 패키지 재고/가격 조회
 router.get('/:id/availability', (req, res) => {
   try {
     const db = getDb();

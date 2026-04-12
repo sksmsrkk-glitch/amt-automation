@@ -1,3 +1,16 @@
+// ============================================================
+// 예약/결제 페이지 (/booking/:type/:id)
+// ------------------------------------------------------------
+// 호텔/티켓/패키지 공통 결제 페이지.
+// - HotelDetail/TicketDetail/PackageDetail 에서 선택한 날짜/수량을
+//   URL 쿼리(roomType, checkIn, checkOut, date, quantity)로 받는다.
+// - 호텔: /hotels/:id/availability 를 호출해 인벤토리 가격 기반
+//   정확한 총액을 표시 (base_price 는 폴백)
+// - 티켓: /tickets/:id/availability 로 per-date 단가 반영
+// - 예약 생성 시 백엔드가 기대하는 snake_case 필드로 POST /bookings
+// - 성공 시 /booking/confirmation/:id 로 이동
+// ============================================================
+
 import React, { useState, useEffect, useMemo } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -5,7 +18,7 @@ import { useAuth } from '../context/AuthContext'
 import { get, post } from '../utils/api'
 
 // ============================================================
-// Helpers
+// Helpers - 날짜/가격/이름 표시용 순수 함수들
 // ============================================================
 
 // Parse "YYYY-MM-DD" as UTC midnight so night calculations are

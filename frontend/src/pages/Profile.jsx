@@ -1,3 +1,10 @@
+// ============================================================
+// 프로필 페이지 (/profile)
+// ------------------------------------------------------------
+// 로그인한 사용자의 기본 정보를 확인하고 이름/전화/국적/언어를 수정한다.
+// updateProfile() 이 내부적으로 PUT /auth/me 를 호출한다.
+// ============================================================
+
 import React, { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'

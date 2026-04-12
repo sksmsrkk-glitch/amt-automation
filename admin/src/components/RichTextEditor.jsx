@@ -1,3 +1,11 @@
+// ============================================================
+// RichTextEditor - 간단한 contentEditable 기반 리치텍스트 에디터
+// ------------------------------------------------------------
+// 굵게/기울임/밑줄/목록 등 기본 포맷팅 툴바 제공.
+// 상품 설명 필드(description_en/cn) 입력에 사용한다.
+// props: { value, onChange(html), placeholder }
+// ============================================================
+
 import React, { useRef, useCallback, useEffect } from 'react'
 
 const styles = {

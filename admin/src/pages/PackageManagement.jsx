@@ -1,3 +1,10 @@
+// ============================================================
+// 패키지 관리 페이지 (/products/packages)
+// ------------------------------------------------------------
+// 패키지 CRUD + 포함 상품(호텔/객실/티켓) 연결 + 이미지/리치텍스트 +
+// 날짜별 재고/가격 + 프로모션.
+// ============================================================
+
 import React, { useState, useEffect, useCallback } from 'react'
 import { get, post, put, del } from '../utils/api'
 import StatusBadge from '../components/StatusBadge'

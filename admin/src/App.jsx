@@ -1,3 +1,11 @@
+// ============================================================
+// 관리자 콘솔 App 컴포넌트
+// ------------------------------------------------------------
+// 라우트 정의 및 인증 보호(ProtectedRoute).
+// /login 을 제외한 모든 라우트는 로그인된 관리자만 접근 가능하며,
+// 공통 사이드바(Sidebar)가 포함된 AdminLayout 으로 감싼다.
+// ============================================================
+
 import React from 'react'
 import { Routes, Route, Navigate } from 'react-router-dom'
 import { useAuth } from './context/AuthContext'
@@ -15,6 +23,7 @@ import UserDetail from './pages/UserDetail'
 import PaymentManagement from './pages/PaymentManagement'
 import Settings from './pages/Settings'
 
+// 사이드바 + 본문 영역의 2단 레이아웃
 function AdminLayout({ children }) {
   return (
     <div className="admin-layout">
@@ -26,6 +35,7 @@ function AdminLayout({ children }) {
   )
 }
 
+// 로그인되지 않았으면 /login 으로 리다이렉트하는 라우트 가드
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth()
   if (loading) {

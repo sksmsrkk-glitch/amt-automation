@@ -1,11 +1,23 @@
+// ============================================================
+// 데이터베이스 설정 / 래퍼
+// ------------------------------------------------------------
+// better-sqlite3 대신 sql.js(Wasm) 를 사용한다. (네이티브 빌드 불필요)
+// - better-sqlite3 와 유사한 동기 API(prepare/run/get/all)를 제공하는
+//   얇은 래퍼를 구현해서 라우트 코드가 깔끔하게 쓸 수 있도록 한다.
+// - 쓰기 작업 후에는 파일로 DB 내용을 즉시 저장(saveDb)한다.
+// - 트랜잭션 중에는 중간 저장을 건너뛰고 커밋 시점에만 저장한다.
+// ============================================================
+
 const initSqlJs = require('sql.js');
 const path = require('path');
 const fs = require('fs');
 
+// 모듈 전역 상태: DB 래퍼, 저장 경로, 트랜잭션 플래그
 let dbWrapper = null;
 let dbPath = null;
 let inTransaction = false;
 
+// 변경사항을 디스크에 flush. 트랜잭션 중에는 스킵한다.
 function saveDb() {
   if (dbWrapper && dbPath && !inTransaction) {
     const data = dbWrapper._db.export();
@@ -14,7 +26,7 @@ function saveDb() {
   }
 }
 
-// Compatibility wrapper: makes sql.js behave like better-sqlite3
+// sql.js 위에 better-sqlite3 와 유사한 prepared statement API 를 제공한다.
 class PreparedStatement {
   constructor(database, sql) {
     this._db = database;

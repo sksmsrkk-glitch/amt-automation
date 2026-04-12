@@ -1,3 +1,11 @@
+// ============================================================
+// 호텔 관리 페이지 (/products/hotels)
+// ------------------------------------------------------------
+// 호텔 및 객실 타입 CRUD + 이미지 업로드 + 리치 텍스트 설명 +
+// 날짜별 재고/가격(BulkInventoryManager) + 프로모션(PromotionManager).
+// featured/sort_order 토글로 고객 프론트의 노출 우선순위를 제어한다.
+// ============================================================
+
 import React, { useState, useEffect, useCallback } from 'react'
 import { get, post, put, del } from '../utils/api'
 import StatusBadge from '../components/StatusBadge'

@@ -1,3 +1,10 @@
+// ============================================================
+// Header - 상단 네비게이션 바
+// ------------------------------------------------------------
+// 로고 + 주요 네비게이션 링크 + 언어 토글(en/cn) + 로그인 상태 표시.
+// 스크롤 위치에 따라 배경 투명도가 바뀌는 sticky 레이아웃.
+// ============================================================
+
 import React, { useState, useEffect } from 'react'
 import { Link, useNavigate, useLocation } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'

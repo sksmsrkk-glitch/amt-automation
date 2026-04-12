@@ -1,3 +1,11 @@
+// ============================================================
+// 예약 관리 페이지 (/bookings)
+// ------------------------------------------------------------
+// 전체 예약 목록을 상태/상품유형/기간/검색어 필터와 함께 표시한다.
+// 각 행 클릭 시 예약 상세(/bookings/:id)로 이동.
+// CSV 다운로드 기능도 제공한다.
+// ============================================================
+
 import React, { useState, useEffect, useCallback } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { get, downloadFile } from '../utils/api'

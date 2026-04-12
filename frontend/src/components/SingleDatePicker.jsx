@@ -1,3 +1,11 @@
+// ============================================================
+// SingleDatePicker - 단일 날짜 선택 캘린더
+// ------------------------------------------------------------
+// 티켓/패키지의 이용 날짜 선택에 사용한다.
+// DateRangePicker 와 동일한 스타일 언어를 따른다.
+// props: { value, onChange(dateStr), placeholder }
+// ============================================================
+
 import React, { useState, useMemo } from 'react'
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']

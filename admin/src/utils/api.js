@@ -1,9 +1,20 @@
+// ============================================================
+// 관리자 콘솔 API 헬퍼
+// ------------------------------------------------------------
+// 고객 프론트의 api.js 와 거의 동일하지만 차이점:
+//   - 토큰 키가 'admin_token' (고객은 'token')
+//   - 401 응답을 받으면 세션 만료로 간주해 로그인 페이지로 리다이렉트
+//   - downloadFile: 파일(바우처/CSV 등) 다운로드 유틸
+// ============================================================
+
 const BASE = '/api'
 
+// localStorage 에서 관리자 토큰 조회
 function getToken() {
   return localStorage.getItem('admin_token')
 }
 
+// 공통 요청 헤더. 토큰이 있으면 Authorization 헤더를 덧붙인다.
 function headers(extra = {}) {
   const h = { 'Content-Type': 'application/json', ...extra }
   const token = getToken()
@@ -13,6 +24,7 @@ function headers(extra = {}) {
   return h
 }
 
+// 공통 요청 함수. 401 은 자동으로 세션 만료 처리 후 홈으로 이동.
 async function request(method, path, body, options = {}) {
   const url = `${BASE}${path}`
   const config = {
@@ -53,6 +65,7 @@ export function del(path) {
   return request('DELETE', path)
 }
 
+// 파일 다운로드 - 토큰을 헤더에 실어서 파일을 받고 브라우저에 저장시킨다
 export async function downloadFile(path, filename) {
   const token = getToken()
   const res = await fetch(`${BASE}${path}`, {

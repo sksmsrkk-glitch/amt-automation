@@ -1,13 +1,21 @@
+// ============================================================
+// 관리자 - 결제 관리 API (/api/admin/payments)
+// ------------------------------------------------------------
+// 결제 목록/상세/상태 변경 및 통계 조회.
+// 실제 결제 게이트웨이(Stripe) 연동 전까지는 관리자가 수동으로
+// 'paid'/'refunded' 상태를 변경할 수 있도록 한다.
+// ============================================================
+
 const express = require('express');
 const { getDb } = require('../../config/database');
 const { authenticate, requireAdmin } = require('../../middleware/auth');
 
 const router = express.Router();
 
-// All routes require admin authentication
+// 결제 라우트 전체에 관리자 인증 적용
 router.use(authenticate, requireAdmin);
 
-// GET /stats - payment statistics
+// GET /stats - 결제 통계 (총 결제 건수/금액, 상태별/수단별 집계, 당일 매출)
 router.get('/stats', (req, res) => {
   try {
     const db = getDb();
@@ -50,7 +58,7 @@ router.get('/stats', (req, res) => {
   }
 });
 
-// GET / - list all payments with filters and pagination
+// GET / - 결제 목록 (상태/수단/기간 필터 + 페이지네이션)
 router.get('/', (req, res) => {
   try {
     const db = getDb();
@@ -106,7 +114,7 @@ router.get('/', (req, res) => {
   }
 });
 
-// GET /:id - payment detail
+// GET /:id - 결제 상세 (연결된 예약 정보 포함)
 router.get('/:id', (req, res) => {
   try {
     const db = getDb();
@@ -129,7 +137,8 @@ router.get('/:id', (req, res) => {
   }
 });
 
-// PUT /:id/status - update payment status
+// PUT /:id/status - 결제 상태 변경 (+ 연결된 예약의 payment_status 동기화)
+// 결제가 'paid' 로 전환되면 예약 상태도 'confirmed' 로 자동 변경된다.
 router.put('/:id/status', (req, res) => {
   try {
     const db = getDb();

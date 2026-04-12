@@ -1,7 +1,21 @@
+// ============================================================
+// 시드(Seed) 스크립트
+// ------------------------------------------------------------
+// 개발/데모용 샘플 데이터를 DB에 주입한다. 실행 방법:
+//   `cd backend && npm run seed`
+// 포함되는 데이터:
+//   - 사용자(관리자 1, 고객 1)
+//   - 호텔 3개 + 객실 타입, 티켓 5개, 패키지 3개
+//   - 향후 30일치 재고 및 가격
+//   - 샘플 예약 3건 (confirmed/pending/cancelled)
+// 주의: 실행 시 기존 데이터를 모두 삭제하고 다시 생성한다.
+// ============================================================
+
 const bcrypt = require('bcryptjs');
 const { v4: uuidv4 } = require('uuid');
 const { getDb, initDb } = require('./config/database');
 
+// 예약 고유번호 생성 (BK- + 12자리 대문자)
 function generateBookingNumber() {
   return 'BK-' + uuidv4().replace(/-/g, '').substring(0, 12).toUpperCase();
 }

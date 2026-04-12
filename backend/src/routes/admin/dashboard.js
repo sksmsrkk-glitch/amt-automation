@@ -1,13 +1,20 @@
+// ============================================================
+// 관리자 - 대시보드 집계 API (/api/admin/dashboard)
+// ------------------------------------------------------------
+// 전체 예약/매출/사용자 수 등 주요 KPI 를 반환한다.
+// 관리자 콘솔의 홈 화면 위젯이 이 엔드포인트를 호출한다.
+// ============================================================
+
 const express = require('express');
 const { getDb } = require('../../config/database');
 const { authenticate, requireAdmin } = require('../../middleware/auth');
 
 const router = express.Router();
 
-// All routes require admin authentication
+// 대시보드 라우트 전체에 관리자 인증 적용
 router.use(authenticate, requireAdmin);
 
-// GET /overview - overall stats
+// GET /overview - 전체 예약/매출/사용자 KPI 요약
 router.get('/overview', (req, res) => {
   try {
     const db = getDb();

@@ -1,3 +1,9 @@
+// ============================================================
+// 티켓 목록 페이지 (/tickets)
+// ------------------------------------------------------------
+// 스키/스파/액티비티 등 리조트 티켓을 카테고리 필터와 함께 표시한다.
+// ============================================================
+
 import React, { useState, useEffect } from 'react'
 import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'

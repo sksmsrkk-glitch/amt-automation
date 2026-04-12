@@ -1,3 +1,14 @@
+// ============================================================
+// DataTable - 공통 데이터 테이블
+// ------------------------------------------------------------
+// 관리자 콘솔의 리스트 페이지에서 공통으로 쓰는 간단한 테이블.
+// props:
+//   - columns: [{ key, label, render? }] 컬럼 정의
+//   - data: 표시할 행 배열
+//   - loading / emptyMessage: 로딩/빈 상태 처리
+//   - onRowClick: 행 클릭 핸들러
+// ============================================================
+
 import React, { useState } from 'react'
 
 export default function DataTable({ columns, data, loading, onRowClick, emptyMessage }) {

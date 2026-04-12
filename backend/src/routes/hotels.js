@@ -1,9 +1,17 @@
+// ============================================================
+// 호텔 공개 API (/api/hotels)
+// ------------------------------------------------------------
+// 고객이 호텔 목록/상세/날짜별 재고를 조회하는 엔드포인트.
+// 인벤토리 가격(room_inventory.price)을 우선 사용하고 없으면
+// room_types.base_price 로 폴백한다.
+// ============================================================
+
 const express = require('express');
 const { getDb } = require('../config/database');
 
 const router = express.Router();
 
-// GET / - list all active hotels
+// GET / - 활성(active) 호텔 목록. is_featured/sort_order 우선 정렬.
 router.get('/', (req, res) => {
   try {
     const db = getDb();
@@ -34,7 +42,7 @@ router.get('/', (req, res) => {
   }
 });
 
-// GET /:id - hotel detail with room types
+// GET /:id - 호텔 상세 + 해당 호텔의 객실 타입 목록 반환
 router.get('/:id', (req, res) => {
   try {
     const db = getDb();
@@ -60,7 +68,8 @@ router.get('/:id', (req, res) => {
   }
 });
 
-// GET /:id/availability?check_in=&check_out=
+// GET /:id/availability - 날짜 구간 내 객실별 재고/총액 계산
+// 프론트 결제 페이지가 실제 청구액을 미리 보여주기 위해 호출한다.
 router.get('/:id/availability', (req, res) => {
   try {
     const db = getDb();

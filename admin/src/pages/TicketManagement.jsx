@@ -1,3 +1,10 @@
+// ============================================================
+// 티켓 관리 페이지 (/products/tickets)
+// ------------------------------------------------------------
+// 티켓 CRUD + 카테고리/위치/소요시간 관리 + 이미지/리치텍스트 +
+// 날짜별 재고/가격 + 프로모션.
+// ============================================================
+
 import React, { useState, useEffect, useCallback } from 'react'
 import { get, post, put, del } from '../utils/api'
 import StatusBadge from '../components/StatusBadge'

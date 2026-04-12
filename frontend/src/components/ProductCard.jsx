@@ -1,3 +1,10 @@
+// ============================================================
+// ProductCard - 호텔/티켓/패키지 공통 카드 컴포넌트
+// ------------------------------------------------------------
+// Home/HotelList/TicketList/PackageList 에서 공통으로 사용하는 카드.
+// 이미지, 다국어 이름/설명, 가격, 상세 페이지 링크를 표시한다.
+// ============================================================
+
 import React from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'

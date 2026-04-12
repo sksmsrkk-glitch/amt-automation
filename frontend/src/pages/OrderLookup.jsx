@@ -1,3 +1,10 @@
+// ============================================================
+// 비회원 예약 조회 페이지 (/order-lookup)
+// ------------------------------------------------------------
+// 로그인 없이 예약번호/이메일/전화번호로 예약을 검색한다.
+// 백엔드 GET /bookings/lookup 은 snake_case 쿼리 파라미터를 기대한다.
+// ============================================================
+
 import React, { useState } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'

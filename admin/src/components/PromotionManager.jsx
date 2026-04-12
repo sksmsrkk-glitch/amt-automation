@@ -1,3 +1,11 @@
+// ============================================================
+// PromotionManager - 상품별 프로모션 관리 패널
+// ------------------------------------------------------------
+// 특정 상품(호텔/티켓/패키지)에 연결된 프로모션 CRUD.
+// 기간, 할인율/고정금액, blackout_dates(적용 불가 날짜)를 설정한다.
+// props: { productType, productId }
+// ============================================================
+
 import React, { useState, useEffect, useCallback } from 'react'
 import { get, post, put, del } from '../utils/api'
 

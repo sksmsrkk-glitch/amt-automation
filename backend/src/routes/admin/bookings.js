@@ -1,10 +1,17 @@
+// ============================================================
+// 관리자 - 예약 관리 API (/api/admin/bookings)
+// ------------------------------------------------------------
+// 관리자 콘솔에서 사용하는 예약 목록/상세/상태 변경 엔드포인트.
+// 모든 라우트는 관리자 권한이 필요하다 (authenticate + requireAdmin).
+// ============================================================
+
 const express = require('express');
 const { getDb } = require('../../config/database');
 const { authenticate, requireAdmin } = require('../../middleware/auth');
 
 const router = express.Router();
 
-// All routes require admin authentication
+// 이 파일의 모든 라우트에 관리자 인증 미들웨어를 적용한다.
 router.use(authenticate, requireAdmin);
 
 // GET /stats - dashboard statistics

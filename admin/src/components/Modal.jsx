@@ -1,3 +1,15 @@
+// ============================================================
+// Modal - 공통 모달 다이얼로그
+// ------------------------------------------------------------
+// props:
+//   - isOpen: 표시 여부
+//   - onClose: 배경 클릭/ESC 시 호출되는 닫기 핸들러
+//   - title: 상단 제목
+//   - size: 'sm' | 'md' | 'lg' | 'xl'
+//   - footer: 하단 버튼 영역(선택)
+// ESC 키로도 닫힌다.
+// ============================================================
+
 import React, { useEffect } from 'react'
 
 export default function Modal({ isOpen, onClose, title, children, size = 'md', footer }) {

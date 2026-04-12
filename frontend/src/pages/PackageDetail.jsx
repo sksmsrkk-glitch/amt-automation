@@ -1,3 +1,10 @@
+// ============================================================
+// 패키지 상세 페이지 (/packages/:id)
+// ------------------------------------------------------------
+// 패키지 정보, 포함된 호텔/티켓 내역, 이용 시작일/인원 선택 UI 제공.
+// "예약하기" 시 BookingPage 로 날짜/수량을 전달한다.
+// ============================================================
+
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'

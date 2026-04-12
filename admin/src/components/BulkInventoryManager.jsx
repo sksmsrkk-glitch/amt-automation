@@ -1,3 +1,16 @@
+// ============================================================
+// BulkInventoryManager - 날짜별 재고/가격 관리 패널
+// ------------------------------------------------------------
+// 섹션 A: 기간 + 요일 필터로 일괄 재고/가격 설정
+// 섹션 B: 일별 재고 캘린더 뷰, 행 단위 인라인 편집
+// 백엔드와의 계약:
+//   - 모든 날짜 계산은 UTC 기준
+//   - days_of_week 은 JS getDay() 인덱스(0=일요일) 기준으로 전송
+//   - 수량만/가격만 같은 부분 업데이트 지원
+//   - 이미 예약된 수량 이하로 줄이면 conflict 로 스킵됨
+// props: { productType: 'room' | 'ticket' | 'package', productId, onSave }
+// ============================================================
+
 import React, { useState, useEffect, useCallback } from 'react'
 import { get, post, put } from '../utils/api'
 

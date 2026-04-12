@@ -1,3 +1,10 @@
+// ============================================================
+// Pagination - 페이지네이션 컴포넌트
+// ------------------------------------------------------------
+// props: { currentPage, totalPages, onPageChange, totalItems }
+// 앞뒤 ... 생략 버튼을 지원하며, 클릭 시 onPageChange(페이지번호)를 호출.
+// ============================================================
+
 import React from 'react'
 
 export default function Pagination({ currentPage, totalPages, onPageChange, totalItems }) {

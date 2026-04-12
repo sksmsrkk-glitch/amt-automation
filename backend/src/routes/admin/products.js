@@ -1,10 +1,23 @@
+// ============================================================
+// 관리자 - 상품 관리 API (/api/admin/products)
+// ------------------------------------------------------------
+// 호텔/객실타입/티켓/패키지 CRUD 와 날짜별 재고(인벤토리) 관리.
+// 주요 기능:
+//   - 상품 기본 정보 CRUD
+//   - 재고/가격 개별 수정 (PUT /<kind>-inventory)
+//   - 일괄 재고 설정 (POST /<kind>-inventory/bulk)
+//     · 날짜 범위 + 요일 필터 + 부분 업데이트 지원
+//     · 이미 예약된 수량보다 작게 줄이면 conflict 로 스킵
+//     · 모든 날짜 계산은 UTC 기준 (서버 타임존 무관)
+// ============================================================
+
 const express = require('express');
 const { getDb } = require('../../config/database');
 const { authenticate, requireAdmin } = require('../../middleware/auth');
 
 const router = express.Router();
 
-// All routes require admin authentication
+// 모든 상품 관리 라우트에 관리자 인증 적용
 router.use(authenticate, requireAdmin);
 
 // ============================================================

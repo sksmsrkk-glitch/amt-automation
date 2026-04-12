@@ -1,3 +1,11 @@
+// ============================================================
+// DateRangePicker - 체크인/체크아웃 범위 선택 캘린더
+// ------------------------------------------------------------
+// 영문 월별 달력 UI. 첫 클릭 = 체크인, 두 번째 클릭 = 체크아웃.
+// 과거 날짜는 비활성화되며, 선택된 범위는 하이라이트로 표시된다.
+// props: { checkIn, checkOut, onChange(ci, co), placeholder }
+// ============================================================
+
 import React, { useState, useMemo } from 'react'
 
 const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']

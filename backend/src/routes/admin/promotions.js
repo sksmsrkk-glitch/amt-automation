@@ -1,3 +1,10 @@
+// ============================================================
+// 관리자 - 프로모션 관리 API (/api/admin/promotions)
+// ------------------------------------------------------------
+// 상품별 할인 프로모션 CRUD.
+// blackout_dates(적용 불가 날짜)는 JSON 배열로 저장되며 응답 시 파싱된다.
+// ============================================================
+
 const express = require('express');
 const { getDb } = require('../../config/database');
 const { authenticate, requireAdmin } = require('../../middleware/auth');
@@ -5,6 +12,7 @@ const { authenticate, requireAdmin } = require('../../middleware/auth');
 const router = express.Router();
 router.use(authenticate, requireAdmin);
 
+// DB의 blackout_dates 문자열 컬럼을 JSON 배열로 파싱해주는 헬퍼
 function parseBlackoutDates(promo) {
   if (promo && promo.blackout_dates) {
     try {

@@ -1,3 +1,10 @@
+// ============================================================
+// 티켓 상세 페이지 (/tickets/:id)
+// ------------------------------------------------------------
+// 티켓 상세 정보, 이용 날짜 선택(SingleDatePicker), 수량 조절 UI 제공.
+// 선택한 날짜/수량은 URL 쿼리로 BookingPage 에 전달된다.
+// ============================================================
+
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'

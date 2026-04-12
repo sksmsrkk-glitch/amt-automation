@@ -1,3 +1,11 @@
+// ============================================================
+// 예약 완료 확인 페이지 (/booking/confirmation/:bookingId)
+// ------------------------------------------------------------
+// 예약 생성 직후 사용자가 보는 페이지. 예약번호, 상품 정보,
+// 바우처 코드/QR(향후 구현) 를 보여주고 "내 예약" / "홈" 이동 링크 제공.
+// 백엔드 GET /bookings/:id 는 { booking, voucher, product, room_type } 형태.
+// ============================================================
+
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'

@@ -1,3 +1,15 @@
+// ============================================================
+// 예약 API (/api/bookings)
+// ------------------------------------------------------------
+// 비회원(guest)/회원 공통 예약 생성, 조회, 취소.
+// 예약 생성 시:
+//   1. 상품 존재 확인 (호텔 객실 / 티켓 / 패키지)
+//   2. 해당 날짜 재고 확인 (room_inventory / ticket_inventory / package_inventory)
+//   3. 인벤토리 가격으로 총액 계산 (없으면 base_price 폴백)
+//   4. booked_quantity/booked_rooms 증가
+//   5. bookings + payments(pending) + vouchers 레코드 생성
+// ============================================================
+
 const express = require('express');
 const { v4: uuidv4 } = require('uuid');
 const { getDb } = require('../config/database');
@@ -5,15 +17,17 @@ const { authenticate } = require('../middleware/auth');
 
 const router = express.Router();
 
+// 예약번호 생성 - "BK-" 접두어 + UUID 앞 12자리
 function generateBookingNumber() {
   return 'BK-' + uuidv4().replace(/-/g, '').substring(0, 12).toUpperCase();
 }
 
+// 바우처 코드 생성 - "VCR-" 접두어 + UUID 앞 10자리
 function generateVoucherCode() {
   return 'VCR-' + uuidv4().replace(/-/g, '').substring(0, 10).toUpperCase();
 }
 
-// POST / - create booking (guest or authenticated)
+// POST / - 예약 생성. 로그인한 사용자면 user_id 도 함께 기록한다.
 router.post('/', (req, res) => {
   try {
     const db = getDb();
@@ -40,7 +54,8 @@ router.post('/', (req, res) => {
       return res.status(400).json({ error: 'product_type must be hotel, ticket, or package.' });
     }
 
-    // Determine user_id from auth header if present
+    // Authorization 헤더가 있으면 JWT 를 해독해 user_id 를 추출한다.
+    // 실패해도 비회원 예약으로 계속 진행.
     let userId = null;
     const authHeader = req.headers.authorization;
     if (authHeader && authHeader.startsWith('Bearer ')) {
@@ -59,7 +74,7 @@ router.post('/', (req, res) => {
     const qty = quantity || 1;
     const guestCount = guests || 1;
 
-    // Validate product and calculate price
+    // 상품 타입별로 재고 확인 및 총액 계산 로직이 다르다.
     if (product_type === 'hotel') {
       if (!room_type_id || !check_in || !check_out) {
         return res.status(400).json({ error: 'room_type_id, check_in, and check_out are required for hotel bookings.' });
@@ -70,7 +85,7 @@ router.post('/', (req, res) => {
         return res.status(404).json({ error: 'Room type not found.' });
       }
 
-      // Calculate nights and total price
+      // 체크인~체크아웃 사이의 박 수(nights) 계산.
       const startDate = new Date(check_in);
       const endDate = new Date(check_out);
       nights = Math.ceil((endDate - startDate) / (1000 * 60 * 60 * 24));
@@ -78,7 +93,7 @@ router.post('/', (req, res) => {
         return res.status(400).json({ error: 'check_out must be after check_in.' });
       }
 
-      // Check availability and calculate price for each night
+      // 매일 밤 재고를 확인하고 인벤토리 가격(없으면 base_price)으로 합산.
       const currentDate = new Date(check_in);
       while (currentDate < endDate) {
         const dateStr = currentDate.toISOString().split('T')[0];
@@ -94,7 +109,7 @@ router.post('/', (req, res) => {
         currentDate.setDate(currentDate.getDate() + 1);
       }
 
-      // Update inventory - increment booked_rooms for each night
+      // 매일 밤의 booked_rooms 를 quantity 만큼 증가시킨다.
       const updateInv = db.prepare('UPDATE room_inventory SET booked_rooms = booked_rooms + ? WHERE room_type_id = ? AND date = ?');
       const updateDate = new Date(check_in);
       while (updateDate < endDate) {
@@ -121,7 +136,7 @@ router.post('/', (req, res) => {
       const price = inv.price || ticket.base_price;
       totalPrice = price * qty;
 
-      // Update inventory
+      // 티켓 재고 차감
       db.prepare('UPDATE ticket_inventory SET booked_quantity = booked_quantity + ? WHERE ticket_id = ? AND date = ?').run(qty, product_id, visit_date);
 
     } else if (product_type === 'package') {
@@ -142,7 +157,7 @@ router.post('/', (req, res) => {
       const price = inv.price || pkg.base_price;
       totalPrice = price * qty;
 
-      // Update inventory
+      // 패키지 재고 차감
       db.prepare('UPDATE package_inventory SET booked_quantity = booked_quantity + ? WHERE package_id = ? AND date = ?').run(qty, product_id, visit_date);
     }
 
@@ -160,13 +175,13 @@ router.post('/', (req, res) => {
 
     const bookingId = result.lastInsertRowid;
 
-    // Create payment record
+    // 결제 레코드 생성 - 실제 결제 게이트웨이 연동 전이라 status=pending 으로 시작
     db.prepare(`
       INSERT INTO payments (booking_id, amount, currency, method, status)
       VALUES (?, ?, 'KRW', 'stripe', 'pending')
     `).run(bookingId, totalPrice);
 
-    // Create voucher
+    // 바우처 생성 - QR 데이터에는 예약번호와 바우처 코드를 JSON으로 담는다
     const voucherCode = generateVoucherCode();
     const qrData = JSON.stringify({
       booking_number: bookingNumber,
@@ -195,7 +210,7 @@ router.post('/', (req, res) => {
   }
 });
 
-// GET /lookup?email=&phone=&booking_number= - guest order lookup
+// GET /lookup - 비회원 예약 조회. 이메일/전화/예약번호로 검색 가능.
 router.get('/lookup', (req, res) => {
   try {
     const db = getDb();
@@ -240,7 +255,7 @@ router.get('/lookup', (req, res) => {
   }
 });
 
-// GET /my - list user's bookings (authenticated)
+// GET /my - 로그인한 사용자 본인의 예약 내역
 router.get('/my', authenticate, (req, res) => {
   try {
     const db = getDb();
@@ -258,7 +273,7 @@ router.get('/my', authenticate, (req, res) => {
   }
 });
 
-// GET /:id - booking detail with voucher
+// GET /:id - 예약 상세. 바우처/결제/상품/객실 정보까지 함께 반환.
 router.get('/:id', (req, res) => {
   try {
     const db = getDb();
@@ -296,7 +311,7 @@ router.get('/:id', (req, res) => {
   }
 });
 
-// PUT /:id/cancel - cancel booking
+// PUT /:id/cancel - 예약 취소. 재고를 원복하고 바우처를 무효화한다.
 router.put('/:id/cancel', (req, res) => {
   try {
     const db = getDb();
@@ -310,7 +325,7 @@ router.put('/:id/cancel', (req, res) => {
       return res.status(400).json({ error: 'Booking is already cancelled.' });
     }
 
-    // Restore inventory
+    // 재고 원복 - 취소된 수량만큼 booked_* 를 감소시킨다
     if (booking.product_type === 'hotel' && booking.room_type_id && booking.check_in && booking.check_out) {
       const startDate = new Date(booking.check_in);
       const endDate = new Date(booking.check_out);
@@ -328,10 +343,10 @@ router.put('/:id/cancel', (req, res) => {
         .run(booking.quantity, booking.product_id, booking.visit_date);
     }
 
-    // Update booking status
+    // 예약 상태를 cancelled 로 전환
     db.prepare("UPDATE bookings SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?").run(booking.id);
 
-    // Deactivate voucher
+    // 바우처도 함께 무효화
     db.prepare("UPDATE vouchers SET status = 'cancelled' WHERE booking_id = ?").run(booking.id);
 
     const updated = db.prepare('SELECT * FROM bookings WHERE id = ?').get(booking.id);

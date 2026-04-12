@@ -1,9 +1,16 @@
+// ============================================================
+// 티켓 공개 API (/api/tickets)
+// ------------------------------------------------------------
+// 리조트 내 시설/액티비티 티켓 목록/상세/날짜별 재고 조회.
+// 카테고리와 검색 필터를 지원하며 is_featured 를 우선 노출한다.
+// ============================================================
+
 const express = require('express');
 const { getDb } = require('../config/database');
 
 const router = express.Router();
 
-// GET / - list all active tickets
+// GET / - 티켓 목록 (카테고리/검색 필터 지원)
 router.get('/', (req, res) => {
   try {
     const db = getDb();
@@ -34,7 +41,7 @@ router.get('/', (req, res) => {
   }
 });
 
-// GET /:id - ticket detail
+// GET /:id - 티켓 상세
 router.get('/:id', (req, res) => {
   try {
     const db = getDb();
@@ -51,7 +58,8 @@ router.get('/:id', (req, res) => {
   }
 });
 
-// GET /:id/availability?date=
+// GET /:id/availability - 특정 날짜의 재고/가격 조회
+// 프론트 결제 페이지에서 인벤토리 가격을 반영한 단가를 얻기 위해 사용한다.
 router.get('/:id/availability', (req, res) => {
   try {
     const db = getDb();

@@ -1,3 +1,10 @@
+// ============================================================
+// 로그인 페이지 (/login)
+// ------------------------------------------------------------
+// 이메일/비밀번호 입력 후 AuthContext.login() 을 호출해 JWT 를 받는다.
+// 성공 시 홈(/) 또는 이전 페이지로 리다이렉트.
+// ============================================================
+
 import React, { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'

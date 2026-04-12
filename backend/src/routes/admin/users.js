@@ -1,13 +1,20 @@
+// ============================================================
+// 관리자 - 사용자 관리 API (/api/admin/users)
+// ------------------------------------------------------------
+// 가입된 사용자 목록/상세 조회 및 통계.
+// 관리자만 접근 가능하며, 비밀번호 필드는 응답에서 제외한다.
+// ============================================================
+
 const express = require('express');
 const { getDb } = require('../../config/database');
 const { authenticate, requireAdmin } = require('../../middleware/auth');
 
 const router = express.Router();
 
-// All routes require admin authentication
+// 사용자 관리 라우트 전체에 관리자 인증 적용
 router.use(authenticate, requireAdmin);
 
-// GET /stats - user statistics
+// GET /stats - 사용자 수/역할별/국적별 집계
 router.get('/stats', (req, res) => {
   try {
     const db = getDb();

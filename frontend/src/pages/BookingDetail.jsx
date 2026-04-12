@@ -1,3 +1,11 @@
+// ============================================================
+// 내 예약 상세 페이지 (/my-bookings/:id)
+// ------------------------------------------------------------
+// 로그인한 사용자의 개별 예약 상세. 상품/게스트/날짜/바우처/결제 정보를
+// 보여주고, 취소 가능한 상태(pending/confirmed)면 취소 버튼 노출.
+// 취소는 PUT /bookings/:id/cancel 로 요청한다.
+// ============================================================
+
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'

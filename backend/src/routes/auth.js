@@ -1,3 +1,10 @@
+// ============================================================
+// 인증 라우트 (/api/auth)
+// ------------------------------------------------------------
+// 회원가입, 로그인, 프로필 조회/수정 엔드포인트.
+// 로그인/회원가입 시 JWT 를 발급하고, /me 는 인증된 사용자만 접근 가능.
+// ============================================================
+
 const express = require('express');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
@@ -6,7 +13,7 @@ const { authenticate, JWT_SECRET } = require('../middleware/auth');
 
 const router = express.Router();
 
-// POST /register
+// POST /register - 신규 회원 가입 후 JWT 즉시 발급
 router.post('/register', (req, res) => {
   try {
     const { name, email, password, phone, nationality, language } = req.body;
@@ -48,7 +55,7 @@ router.post('/register', (req, res) => {
   }
 });
 
-// POST /login
+// POST /login - 이메일/비밀번호 검증 후 JWT 발급
 router.post('/login', (req, res) => {
   try {
     const { email, password } = req.body;
@@ -84,12 +91,12 @@ router.post('/login', (req, res) => {
   }
 });
 
-// GET /me
+// GET /me - 현재 로그인한 사용자의 프로필 조회
 router.get('/me', authenticate, (req, res) => {
   res.json({ user: req.user });
 });
 
-// PUT /me
+// PUT /me - 프로필 부분 업데이트 (이름/전화/국적/언어)
 router.put('/me', authenticate, (req, res) => {
   try {
     const { name, phone, nationality, language } = req.body;
