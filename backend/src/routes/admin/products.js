@@ -7,6 +7,209 @@ const router = express.Router();
 // All routes require admin authentication
 router.use(authenticate, requireAdmin);
 
+// ============================================================
+// Inventory helpers (UTC-based date handling)
+// ============================================================
+
+// Parse "YYYY-MM-DD" as UTC midnight to avoid server-local timezone drift.
+function parseUTCDateStr(str) {
+  if (typeof str !== 'string') return null;
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(str);
+  if (!m) return null;
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]));
+  if (isNaN(d.getTime())) return null;
+  return d;
+}
+
+function formatUTCDateStr(date) {
+  return date.toISOString().split('T')[0];
+}
+
+// Enumerate "YYYY-MM-DD" strings in [start, end] inclusive (UTC).
+// daysOfWeek: undefined/null -> all days; [] -> caller should short-circuit;
+// otherwise filter by JavaScript getUTCDay() values (0=Sun ... 6=Sat).
+function enumerateDates(startStr, endStr, daysOfWeek) {
+  const start = parseUTCDateStr(startStr);
+  const end = parseUTCDateStr(endStr);
+  if (!start || !end || start > end) return [];
+  const dates = [];
+  const cur = new Date(start);
+  while (cur <= end) {
+    const day = cur.getUTCDay();
+    if (!Array.isArray(daysOfWeek) || daysOfWeek.includes(day)) {
+      dates.push(formatUTCDateStr(cur));
+    }
+    cur.setUTCDate(cur.getUTCDate() + 1);
+  }
+  return dates;
+}
+
+// Applies a single-date inventory change with partial-update + booked-conflict checks.
+// Returns one of: 'updated', 'created', 'conflict', 'skipped'.
+function applyInventoryChange(ctx, dateStr, totalValue, priceValue) {
+  const existing = ctx.getRow.get(ctx.idValue, dateStr);
+  const hasTotal = totalValue !== undefined && totalValue !== null && totalValue !== '';
+  const hasPrice = priceValue !== undefined && priceValue !== null && priceValue !== '';
+  const total = hasTotal ? Number(totalValue) : null;
+  const price = hasPrice ? Number(priceValue) : null;
+
+  if (hasTotal && (!Number.isFinite(total) || total < 0)) return 'skipped';
+  if (hasPrice && (!Number.isFinite(price) || price < 0)) return 'skipped';
+  if (!hasTotal && !hasPrice) return 'skipped';
+
+  if (existing) {
+    if (hasTotal && total < existing[ctx.bookedCol]) {
+      return { status: 'conflict', booked: existing[ctx.bookedCol], attempted_total: total };
+    }
+    if (hasTotal && hasPrice) {
+      ctx.updateBoth.run(total, price, ctx.idValue, dateStr);
+    } else if (hasTotal) {
+      ctx.updateTotal.run(total, ctx.idValue, dateStr);
+    } else {
+      ctx.updatePrice.run(price, ctx.idValue, dateStr);
+    }
+    return 'updated';
+  }
+
+  // No existing row. Need a total to create a meaningful row.
+  if (!hasTotal) return 'skipped';
+  ctx.insertRow.run(ctx.idValue, dateStr, total, hasPrice ? price : null);
+  return 'created';
+}
+
+// Build a reusable statement context for a given inventory table.
+function buildInventoryCtx(db, { table, idCol, totalCol, bookedCol, idValue }) {
+  return {
+    idValue,
+    bookedCol,
+    getRow: db.prepare(`SELECT * FROM ${table} WHERE ${idCol} = ? AND date = ?`),
+    insertRow: db.prepare(`INSERT INTO ${table} (${idCol}, date, ${totalCol}, price) VALUES (?, ?, ?, ?)`),
+    updateBoth: db.prepare(`UPDATE ${table} SET ${totalCol} = ?, price = ? WHERE ${idCol} = ? AND date = ?`),
+    updateTotal: db.prepare(`UPDATE ${table} SET ${totalCol} = ? WHERE ${idCol} = ? AND date = ?`),
+    updatePrice: db.prepare(`UPDATE ${table} SET price = ? WHERE ${idCol} = ? AND date = ?`),
+  };
+}
+
+// Shared handler factory for POST /{kind}-inventory/bulk
+function makeBulkSetHandler({ table, idCol, totalCol, bookedCol, parentTable, parentLabel }) {
+  return (req, res) => {
+    try {
+      const db = getDb();
+      const { start_date, end_date, price, days_of_week } = req.body;
+      const idValue = req.body[idCol];
+      const totalValue = req.body[totalCol];
+
+      if (!idValue || !start_date || !end_date) {
+        return res.status(400).json({ error: `${idCol}, start_date, and end_date are required.` });
+      }
+      if ((totalValue === undefined || totalValue === null || totalValue === '') &&
+          (price === undefined || price === null || price === '')) {
+        return res.status(400).json({ error: 'At least one of quantity or price must be provided.' });
+      }
+      if (!parseUTCDateStr(start_date) || !parseUTCDateStr(end_date)) {
+        return res.status(400).json({ error: 'Dates must be YYYY-MM-DD.' });
+      }
+      if (parseUTCDateStr(start_date) > parseUTCDateStr(end_date)) {
+        return res.status(400).json({ error: 'start_date must be on or before end_date.' });
+      }
+      if (Array.isArray(days_of_week) && days_of_week.length === 0) {
+        return res.json({
+          message: 'No days of week selected. Nothing to update.',
+          updated_count: 0, created_count: 0, skipped_count: 0, conflicts: [],
+        });
+      }
+
+      const parent = db.prepare(`SELECT id FROM ${parentTable} WHERE id = ?`).get(idValue);
+      if (!parent) return res.status(404).json({ error: `${parentLabel} not found.` });
+
+      const dates = enumerateDates(start_date, end_date, days_of_week);
+      if (dates.length === 0) {
+        return res.status(400).json({ error: 'No matching dates in the given range.' });
+      }
+
+      const ctx = buildInventoryCtx(db, { table, idCol, totalCol, bookedCol, idValue });
+      let updated = 0, created = 0, skipped = 0;
+      const conflicts = [];
+
+      const tx = db.transaction(() => {
+        for (const dateStr of dates) {
+          const result = applyInventoryChange(ctx, dateStr, totalValue, price);
+          if (result === 'updated') updated++;
+          else if (result === 'created') created++;
+          else if (result === 'skipped') skipped++;
+          else if (result && result.status === 'conflict') {
+            conflicts.push({ date: dateStr, booked: result.booked, attempted_total: result.attempted_total });
+            skipped++;
+          }
+        }
+      });
+      tx();
+
+      res.json({
+        message: `Updated ${updated}, created ${created}, skipped ${skipped} dates.`,
+        updated_count: updated,
+        created_count: created,
+        skipped_count: skipped,
+        conflicts,
+      });
+    } catch (err) {
+      console.error(`Bulk ${table} error:`, err);
+      res.status(500).json({ error: 'Internal server error.' });
+    }
+  };
+}
+
+// Shared handler factory for PUT /{kind}-inventory (per-item partial updates)
+function makePerItemUpdateHandler({ table, idCol, totalCol, bookedCol, parentTable, parentLabel }) {
+  return (req, res) => {
+    try {
+      const db = getDb();
+      const { items } = req.body;
+      const idValue = req.body[idCol];
+
+      if (!idValue || !Array.isArray(items)) {
+        return res.status(400).json({ error: `${idCol} and items array are required.` });
+      }
+
+      const parent = db.prepare(`SELECT id FROM ${parentTable} WHERE id = ?`).get(idValue);
+      if (!parent) return res.status(404).json({ error: `${parentLabel} not found.` });
+
+      const ctx = buildInventoryCtx(db, { table, idCol, totalCol, bookedCol, idValue });
+      let updated = 0, created = 0, skipped = 0;
+      const conflicts = [];
+
+      const tx = db.transaction(() => {
+        for (const entry of items) {
+          if (!entry || typeof entry !== 'object' || !parseUTCDateStr(entry.date)) {
+            skipped++;
+            continue;
+          }
+          const result = applyInventoryChange(ctx, entry.date, entry.total, entry.price);
+          if (result === 'updated') updated++;
+          else if (result === 'created') created++;
+          else if (result === 'skipped') skipped++;
+          else if (result && result.status === 'conflict') {
+            conflicts.push({ date: entry.date, booked: result.booked, attempted_total: result.attempted_total });
+            skipped++;
+          }
+        }
+      });
+      tx();
+
+      res.json({
+        message: `Updated ${updated}, created ${created}, skipped ${skipped} entries.`,
+        updated_count: updated,
+        created_count: created,
+        skipped_count: skipped,
+        conflicts,
+      });
+    } catch (err) {
+      console.error(`Admin update ${table} error:`, err);
+      res.status(500).json({ error: 'Internal server error.' });
+    }
+  };
+}
+
 // PUT /featured - quick toggle featured status
 router.put('/featured', (req, res) => {
   try {
@@ -92,7 +295,9 @@ router.post('/', (req, res) => {
 });
 
 // PUT /:id - update hotel
-router.put('/:id', (req, res) => {
+// Numeric constraint prevents this from shadowing literal sibling routes
+// like PUT /room-inventory, PUT /ticket-inventory, PUT /package-inventory.
+router.put('/:id(\\d+)', (req, res) => {
   try {
     const db = getDb();
     const hotel = db.prepare('SELECT * FROM hotels WHERE id = ?').get(req.params.id);
@@ -137,7 +342,7 @@ router.put('/:id', (req, res) => {
 });
 
 // DELETE /:id - delete hotel (soft delete by setting status to inactive)
-router.delete('/:id', (req, res) => {
+router.delete('/:id(\\d+)', (req, res) => {
   try {
     const db = getDb();
     const hotel = db.prepare('SELECT * FROM hotels WHERE id = ?').get(req.params.id);
@@ -578,251 +783,64 @@ router.get('/package-inventory/:package_id', (req, res) => {
   }
 });
 
-// PUT /room-inventory - bulk update room inventory
-router.put('/room-inventory', (req, res) => {
-  try {
-    const db = getDb();
-    const { room_type_id, items } = req.body;
+// PUT /room-inventory - per-date partial updates for room inventory
+router.put('/room-inventory', makePerItemUpdateHandler({
+  table: 'room_inventory',
+  idCol: 'room_type_id',
+  totalCol: 'total_rooms',
+  bookedCol: 'booked_rooms',
+  parentTable: 'room_types',
+  parentLabel: 'Room type',
+}));
 
-    if (!room_type_id || !items || !Array.isArray(items)) {
-      return res.status(400).json({ error: 'room_type_id and items array are required.' });
-    }
+// PUT /ticket-inventory - per-date partial updates for ticket inventory
+router.put('/ticket-inventory', makePerItemUpdateHandler({
+  table: 'ticket_inventory',
+  idCol: 'ticket_id',
+  totalCol: 'total_quantity',
+  bookedCol: 'booked_quantity',
+  parentTable: 'tickets',
+  parentLabel: 'Ticket',
+}));
 
-    const roomType = db.prepare('SELECT id FROM room_types WHERE id = ?').get(room_type_id);
-    if (!roomType) {
-      return res.status(404).json({ error: 'Room type not found.' });
-    }
-
-    const upsert = db.prepare(`
-      INSERT INTO room_inventory (room_type_id, date, total_rooms, price)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(room_type_id, date) DO UPDATE SET
-        total_rooms = excluded.total_rooms,
-        price = excluded.price
-    `);
-
-    const transaction = db.transaction((entries) => {
-      for (const entry of entries) {
-        upsert.run(room_type_id, entry.date, entry.total, entry.price);
-      }
-    });
-
-    transaction(items);
-
-    res.json({ message: `Room inventory updated for ${items.length} dates.` });
-  } catch (err) {
-    console.error('Admin update room inventory error:', err);
-    res.status(500).json({ error: 'Internal server error.' });
-  }
-});
-
-// PUT /ticket-inventory - bulk update ticket inventory
-router.put('/ticket-inventory', (req, res) => {
-  try {
-    const db = getDb();
-    const { ticket_id, items } = req.body;
-
-    if (!ticket_id || !items || !Array.isArray(items)) {
-      return res.status(400).json({ error: 'ticket_id and items array are required.' });
-    }
-
-    const ticket = db.prepare('SELECT id FROM tickets WHERE id = ?').get(ticket_id);
-    if (!ticket) {
-      return res.status(404).json({ error: 'Ticket not found.' });
-    }
-
-    const upsert = db.prepare(`
-      INSERT INTO ticket_inventory (ticket_id, date, total_quantity, price)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(ticket_id, date) DO UPDATE SET
-        total_quantity = excluded.total_quantity,
-        price = excluded.price
-    `);
-
-    const transaction = db.transaction((entries) => {
-      for (const entry of entries) {
-        upsert.run(ticket_id, entry.date, entry.total, entry.price);
-      }
-    });
-
-    transaction(items);
-
-    res.json({ message: `Ticket inventory updated for ${items.length} dates.` });
-  } catch (err) {
-    console.error('Admin update ticket inventory error:', err);
-    res.status(500).json({ error: 'Internal server error.' });
-  }
-});
-
-// PUT /package-inventory - bulk update package inventory
-router.put('/package-inventory', (req, res) => {
-  try {
-    const db = getDb();
-    const { package_id, items } = req.body;
-
-    if (!package_id || !items || !Array.isArray(items)) {
-      return res.status(400).json({ error: 'package_id and items array are required.' });
-    }
-
-    const pkg = db.prepare('SELECT id FROM packages WHERE id = ?').get(package_id);
-    if (!pkg) {
-      return res.status(404).json({ error: 'Package not found.' });
-    }
-
-    const upsert = db.prepare(`
-      INSERT INTO package_inventory (package_id, date, total_quantity, price)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(package_id, date) DO UPDATE SET
-        total_quantity = excluded.total_quantity,
-        price = excluded.price
-    `);
-
-    const transaction = db.transaction((entries) => {
-      for (const entry of entries) {
-        upsert.run(package_id, entry.date, entry.total, entry.price);
-      }
-    });
-
-    transaction(items);
-
-    res.json({ message: `Package inventory updated for ${items.length} dates.` });
-  } catch (err) {
-    console.error('Admin update package inventory error:', err);
-    res.status(500).json({ error: 'Internal server error.' });
-  }
-});
+// PUT /package-inventory - per-date partial updates for package inventory
+router.put('/package-inventory', makePerItemUpdateHandler({
+  table: 'package_inventory',
+  idCol: 'package_id',
+  totalCol: 'total_quantity',
+  bookedCol: 'booked_quantity',
+  parentTable: 'packages',
+  parentLabel: 'Package',
+}));
 
 // POST /room-inventory/bulk - bulk set room inventory by date range
-router.post('/room-inventory/bulk', (req, res) => {
-  try {
-    const db = getDb();
-    const { room_type_id, start_date, end_date, total_rooms, price, days_of_week } = req.body;
-    // days_of_week is optional array of 0-6 (0=Sunday). If not provided, apply to all days.
-
-    if (!room_type_id || !start_date || !end_date) {
-      return res.status(400).json({ error: 'room_type_id, start_date, and end_date are required.' });
-    }
-
-    const upsert = db.prepare(`
-      INSERT INTO room_inventory (room_type_id, date, total_rooms, price)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(room_type_id, date) DO UPDATE SET
-        total_rooms = CASE WHEN ? IS NOT NULL THEN ? ELSE room_inventory.total_rooms END,
-        price = CASE WHEN ? IS NOT NULL THEN ? ELSE room_inventory.price END
-    `);
-
-    let count = 0;
-    const current = new Date(start_date);
-    const end = new Date(end_date);
-
-    const transaction = db.transaction(() => {
-      while (current <= end) {
-        const dayOfWeek = current.getDay();
-        if (!days_of_week || days_of_week.length === 0 || days_of_week.includes(dayOfWeek)) {
-          const dateStr = current.toISOString().split('T')[0];
-          const t = total_rooms !== undefined && total_rooms !== null ? total_rooms : null;
-          const p = price !== undefined && price !== null ? price : null;
-          upsert.run(room_type_id, dateStr, t || 0, p, t, t, p, p);
-          count++;
-        }
-        current.setDate(current.getDate() + 1);
-      }
-    });
-    transaction();
-
-    res.json({ message: `Room inventory updated for ${count} dates.` });
-  } catch (err) {
-    console.error('Bulk room inventory error:', err);
-    res.status(500).json({ error: 'Internal server error.' });
-  }
-});
+router.post('/room-inventory/bulk', makeBulkSetHandler({
+  table: 'room_inventory',
+  idCol: 'room_type_id',
+  totalCol: 'total_rooms',
+  bookedCol: 'booked_rooms',
+  parentTable: 'room_types',
+  parentLabel: 'Room type',
+}));
 
 // POST /ticket-inventory/bulk - bulk set ticket inventory by date range
-router.post('/ticket-inventory/bulk', (req, res) => {
-  try {
-    const db = getDb();
-    const { ticket_id, start_date, end_date, total_quantity, price, days_of_week } = req.body;
-
-    if (!ticket_id || !start_date || !end_date) {
-      return res.status(400).json({ error: 'ticket_id, start_date, and end_date are required.' });
-    }
-
-    const upsert = db.prepare(`
-      INSERT INTO ticket_inventory (ticket_id, date, total_quantity, price)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(ticket_id, date) DO UPDATE SET
-        total_quantity = CASE WHEN ? IS NOT NULL THEN ? ELSE ticket_inventory.total_quantity END,
-        price = CASE WHEN ? IS NOT NULL THEN ? ELSE ticket_inventory.price END
-    `);
-
-    let count = 0;
-    const current = new Date(start_date);
-    const end = new Date(end_date);
-
-    const transaction = db.transaction(() => {
-      while (current <= end) {
-        const dayOfWeek = current.getDay();
-        if (!days_of_week || days_of_week.length === 0 || days_of_week.includes(dayOfWeek)) {
-          const dateStr = current.toISOString().split('T')[0];
-          const t = total_quantity !== undefined && total_quantity !== null ? total_quantity : null;
-          const p = price !== undefined && price !== null ? price : null;
-          upsert.run(ticket_id, dateStr, t || 0, p, t, t, p, p);
-          count++;
-        }
-        current.setDate(current.getDate() + 1);
-      }
-    });
-    transaction();
-
-    res.json({ message: `Ticket inventory updated for ${count} dates.` });
-  } catch (err) {
-    console.error('Bulk ticket inventory error:', err);
-    res.status(500).json({ error: 'Internal server error.' });
-  }
-});
+router.post('/ticket-inventory/bulk', makeBulkSetHandler({
+  table: 'ticket_inventory',
+  idCol: 'ticket_id',
+  totalCol: 'total_quantity',
+  bookedCol: 'booked_quantity',
+  parentTable: 'tickets',
+  parentLabel: 'Ticket',
+}));
 
 // POST /package-inventory/bulk - bulk set package inventory by date range
-router.post('/package-inventory/bulk', (req, res) => {
-  try {
-    const db = getDb();
-    const { package_id, start_date, end_date, total_quantity, price, days_of_week } = req.body;
-
-    if (!package_id || !start_date || !end_date) {
-      return res.status(400).json({ error: 'package_id, start_date, and end_date are required.' });
-    }
-
-    const upsert = db.prepare(`
-      INSERT INTO package_inventory (package_id, date, total_quantity, price)
-      VALUES (?, ?, ?, ?)
-      ON CONFLICT(package_id, date) DO UPDATE SET
-        total_quantity = CASE WHEN ? IS NOT NULL THEN ? ELSE package_inventory.total_quantity END,
-        price = CASE WHEN ? IS NOT NULL THEN ? ELSE package_inventory.price END
-    `);
-
-    let count = 0;
-    const current = new Date(start_date);
-    const end = new Date(end_date);
-
-    const transaction = db.transaction(() => {
-      while (current <= end) {
-        const dayOfWeek = current.getDay();
-        if (!days_of_week || days_of_week.length === 0 || days_of_week.includes(dayOfWeek)) {
-          const dateStr = current.toISOString().split('T')[0];
-          const t = total_quantity !== undefined && total_quantity !== null ? total_quantity : null;
-          const p = price !== undefined && price !== null ? price : null;
-          upsert.run(package_id, dateStr, t || 0, p, t, t, p, p);
-          count++;
-        }
-        current.setDate(current.getDate() + 1);
-      }
-    });
-    transaction();
-
-    res.json({ message: `Package inventory updated for ${count} dates.` });
-  } catch (err) {
-    console.error('Bulk package inventory error:', err);
-    res.status(500).json({ error: 'Internal server error.' });
-  }
-});
+router.post('/package-inventory/bulk', makeBulkSetHandler({
+  table: 'package_inventory',
+  idCol: 'package_id',
+  totalCol: 'total_quantity',
+  bookedCol: 'booked_quantity',
+  parentTable: 'packages',
+  parentLabel: 'Package',
+}));
 
 module.exports = router;

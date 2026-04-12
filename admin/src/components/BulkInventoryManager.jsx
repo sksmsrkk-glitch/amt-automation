@@ -1,25 +1,43 @@
 import React, { useState, useEffect, useCallback } from 'react'
 import { get, post, put } from '../utils/api'
 
+// Display order is Mon..Sun, but we store/send JavaScript getUTCDay() indices
+// (0=Sun, 1=Mon, ..., 6=Sat) so the backend filter matches JS's native values.
 const DAY_NAMES = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const DAY_KR = ['월', '화', '수', '목', '금', '토', '일']
+const DAY_JS_INDEX = [1, 2, 3, 4, 5, 6, 0] // display index -> JS getDay index
+const ALL_DAYS = [0, 1, 2, 3, 4, 5, 6]
 
-function formatDate(d) {
-  const dt = new Date(d)
-  const y = dt.getFullYear()
-  const m = String(dt.getMonth() + 1).padStart(2, '0')
-  const day = String(dt.getDate()).padStart(2, '0')
+// Parse "YYYY-MM-DD" as UTC midnight to avoid local-timezone off-by-one.
+function parseDateStr(str) {
+  if (typeof str !== 'string') return null
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(str)
+  if (!m) return null
+  return new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]))
+}
+
+function formatDate(input) {
+  // Accepts either a "YYYY-MM-DD" string (passes through) or a Date object.
+  if (typeof input === 'string') {
+    const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(input)
+    if (m) return `${m[1]}-${m[2]}-${m[3]}`
+  }
+  const dt = input instanceof Date ? input : new Date(input)
+  const y = dt.getUTCFullYear()
+  const m = String(dt.getUTCMonth() + 1).padStart(2, '0')
+  const day = String(dt.getUTCDate()).padStart(2, '0')
   return `${y}-${m}-${day}`
 }
 
 function addDays(dateStr, days) {
-  const d = new Date(dateStr)
-  d.setDate(d.getDate() + days)
+  const d = parseDateStr(dateStr) || new Date()
+  d.setUTCDate(d.getUTCDate() + days)
   return formatDate(d)
 }
 
 function todayStr() {
-  return formatDate(new Date())
+  const now = new Date()
+  return formatDate(new Date(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate())))
 }
 
 const styles = {
@@ -258,12 +276,12 @@ export default function BulkInventoryManager({ productType, productId, onSave })
   const typeLabel = productType === 'room' ? 'Rooms' : 'Quantity'
   const idField = productType === 'room' ? 'room_type_id' : productType === 'ticket' ? 'ticket_id' : 'package_id'
 
-  // Bulk set state
+  // Bulk set state. daysOfWeek stores JS getDay() indices (0=Sun..6=Sat).
   const [bulkStart, setBulkStart] = useState(todayStr())
   const [bulkEnd, setBulkEnd] = useState(addDays(todayStr(), 30))
   const [bulkPrice, setBulkPrice] = useState('')
   const [bulkQuantity, setBulkQuantity] = useState('')
-  const [daysOfWeek, setDaysOfWeek] = useState([0, 1, 2, 3, 4, 5, 6])
+  const [daysOfWeek, setDaysOfWeek] = useState(ALL_DAYS)
   const [bulkLoading, setBulkLoading] = useState(false)
   const [bulkMessage, setBulkMessage] = useState(null)
 
@@ -281,7 +299,7 @@ export default function BulkInventoryManager({ productType, productId, onSave })
     try {
       const endpoint = `/admin/products/${productType}-inventory/${productId}?from_date=${viewStart}&to_date=${viewEnd}`
       const res = await get(endpoint)
-      setInventory(res.inventory || res.data || res || [])
+      setInventory(Array.isArray(res?.inventory) ? res.inventory : [])
     } catch {
       setInventory([])
     } finally {
@@ -293,11 +311,13 @@ export default function BulkInventoryManager({ productType, productId, onSave })
     loadInventory()
   }, [loadInventory])
 
-  const toggleDay = (dayIndex) => {
-    if (daysOfWeek.includes(dayIndex)) {
-      setDaysOfWeek(daysOfWeek.filter((d) => d !== dayIndex))
+  // dayIndex here is the display index (0=Mon..6=Sun). Translate to JS getDay().
+  const toggleDay = (displayIndex) => {
+    const jsIndex = DAY_JS_INDEX[displayIndex]
+    if (daysOfWeek.includes(jsIndex)) {
+      setDaysOfWeek(daysOfWeek.filter((d) => d !== jsIndex))
     } else {
-      setDaysOfWeek([...daysOfWeek, dayIndex].sort())
+      setDaysOfWeek([...daysOfWeek, jsIndex].sort((a, b) => a - b))
     }
   }
 
@@ -306,8 +326,26 @@ export default function BulkInventoryManager({ productType, productId, onSave })
       alert('Please select start and end dates.')
       return
     }
-    if (!bulkPrice && !bulkQuantity) {
+    if (bulkStart > bulkEnd) {
+      alert('Start date must be on or before end date.')
+      return
+    }
+    const hasPrice = bulkPrice !== '' && !Number.isNaN(Number(bulkPrice))
+    const hasQty = bulkQuantity !== '' && !Number.isNaN(Number(bulkQuantity))
+    if (!hasPrice && !hasQty) {
       alert('Please enter at least a price or quantity.')
+      return
+    }
+    if (hasPrice && Number(bulkPrice) < 0) {
+      alert('Price must be zero or positive.')
+      return
+    }
+    if (hasQty && Number(bulkQuantity) < 0) {
+      alert('Quantity must be zero or positive.')
+      return
+    }
+    if (daysOfWeek.length === 0) {
+      alert('Please select at least one day of the week.')
       return
     }
     setBulkLoading(true)
@@ -319,16 +357,28 @@ export default function BulkInventoryManager({ productType, productId, onSave })
         end_date: bulkEnd,
         days_of_week: daysOfWeek,
       }
-      if (bulkPrice !== '') {
-        body.price = Number(bulkPrice)
-      }
-      if (bulkQuantity !== '') {
+      if (hasPrice) body.price = Number(bulkPrice)
+      if (hasQty) {
         body[productType === 'room' ? 'total_rooms' : 'total_quantity'] = Number(bulkQuantity)
       }
 
       const res = await post(`/admin/products/${productType}-inventory/bulk`, body)
-      const count = res.updated_count || res.count || res.updated || 'multiple'
-      setBulkMessage({ type: 'success', text: `Successfully updated ${count} date(s).` })
+      const updated = res.updated_count ?? 0
+      const created = res.created_count ?? 0
+      const skipped = res.skipped_count ?? 0
+      const conflicts = Array.isArray(res.conflicts) ? res.conflicts : []
+      const parts = []
+      if (updated) parts.push(`${updated} updated`)
+      if (created) parts.push(`${created} created`)
+      if (skipped) parts.push(`${skipped} skipped`)
+      const summary = parts.length ? parts.join(', ') : 'no changes'
+      let text = `Success: ${summary}.`
+      if (conflicts.length > 0) {
+        const preview = conflicts.slice(0, 3).map(c => `${c.date} (booked ${c.booked} > ${c.attempted_total})`).join(', ')
+        const more = conflicts.length > 3 ? ` and ${conflicts.length - 3} more` : ''
+        text += ` Skipped due to existing bookings: ${preview}${more}.`
+      }
+      setBulkMessage({ type: conflicts.length > 0 ? 'error' : 'success', text })
       loadInventory()
       if (onSave) onSave()
     } catch (err) {
@@ -342,7 +392,7 @@ export default function BulkInventoryManager({ productType, productId, onSave })
     setEditingRow(index)
     setEditValues({
       price: inv.price ?? '',
-      quantity: inv.quantity ?? inv.total_rooms ?? inv.total_quantity ?? '',
+      quantity: inv.total_rooms ?? inv.total_quantity ?? '',
     })
   }
 
@@ -352,32 +402,38 @@ export default function BulkInventoryManager({ productType, productId, onSave })
   }
 
   const saveEdit = async (inv) => {
+    const hasPrice = editValues.price !== '' && !Number.isNaN(Number(editValues.price))
+    const hasQty = editValues.quantity !== '' && !Number.isNaN(Number(editValues.quantity))
+    if (!hasPrice && !hasQty) {
+      cancelEdit()
+      return
+    }
+    if (hasPrice && Number(editValues.price) < 0) {
+      alert('Price must be zero or positive.')
+      return
+    }
+    if (hasQty && Number(editValues.quantity) < 0) {
+      alert('Quantity must be zero or positive.')
+      return
+    }
     try {
-      const typeIdField = productType === 'room' ? 'room_type_id' : productType === 'ticket' ? 'ticket_id' : 'package_id'
+      const item = { date: formatDate(inv.date) }
+      if (hasQty) item.total = Number(editValues.quantity)
+      if (hasPrice) item.price = Number(editValues.price)
+
       const body = {
-        [typeIdField]: productId,
-        items: [{
-          date: formatDate(inv.date),
-          total: editValues.quantity !== '' ? Number(editValues.quantity) : undefined,
-          price: editValues.price !== '' ? Number(editValues.price) : undefined,
-        }],
+        [idField]: productId,
+        items: [item],
       }
-      try {
-        await put(`/admin/products/${productType}-inventory`, body)
-      } catch {
-        // Fallback to bulk endpoint with single-day range
-        const fallback = {
-          [idField]: productId,
-          start_date: formatDate(inv.date),
-          end_date: formatDate(inv.date),
-          days_of_week: [0, 1, 2, 3, 4, 5, 6],
-        }
-        if (editValues.price !== '') fallback.price = Number(editValues.price)
-        if (editValues.quantity !== '') {
-          fallback[productType === 'room' ? 'total_rooms' : 'total_quantity'] = Number(editValues.quantity)
-        }
-        await post(`/admin/products/${productType}-inventory/bulk`, fallback)
+      const res = await put(`/admin/products/${productType}-inventory`, body)
+
+      const conflicts = Array.isArray(res?.conflicts) ? res.conflicts : []
+      if (conflicts.length > 0) {
+        const c = conflicts[0]
+        alert(`Cannot reduce quantity below booked count (${c.booked}) on ${c.date}.`)
+        return
       }
+
       setEditingRow(null)
       loadInventory()
       if (onSave) onSave()
@@ -391,19 +447,15 @@ export default function BulkInventoryManager({ productType, productId, onSave })
     if (e.key === 'Escape') cancelEdit()
   }
 
-  const getDayKr = (dateStr) => {
-    const d = new Date(dateStr)
-    const jsDay = d.getDay() // 0=Sun
-    const idx = jsDay === 0 ? 6 : jsDay - 1
-    return DAY_KR[idx]
+  const getDayIndex = (dateStr) => {
+    const d = parseDateStr(formatDate(dateStr))
+    if (!d) return 0
+    const jsDay = d.getUTCDay() // 0=Sun..6=Sat
+    return jsDay === 0 ? 6 : jsDay - 1 // convert to display order (Mon..Sun)
   }
 
-  const getDayName = (dateStr) => {
-    const d = new Date(dateStr)
-    const jsDay = d.getDay()
-    const idx = jsDay === 0 ? 6 : jsDay - 1
-    return DAY_NAMES[idx]
-  }
+  const getDayKr = (dateStr) => DAY_KR[getDayIndex(dateStr)]
+  const getDayName = (dateStr) => DAY_NAMES[getDayIndex(dateStr)]
 
   const formatCurrency = (v) => v != null ? '\u20a9' + Number(v).toLocaleString() : '-'
 
@@ -463,24 +515,28 @@ export default function BulkInventoryManager({ productType, productId, onSave })
         <div style={{ marginBottom: 16 }}>
           <span style={{ ...styles.label, display: 'block', marginBottom: 8 }}>{'\uC694\uC77C \uC120\uD0DD'} (Days of Week)</span>
           <div style={styles.daysRow}>
-            {DAY_NAMES.map((day, i) => (
-              <div
-                key={i}
-                style={{
-                  ...styles.dayCheck,
-                  ...(daysOfWeek.includes(i) ? styles.dayChecked : styles.dayUnchecked),
-                }}
-                onClick={() => toggleDay(i)}
-              >
-                <input
-                  type="checkbox"
-                  checked={daysOfWeek.includes(i)}
-                  onChange={() => toggleDay(i)}
-                  style={{ margin: 0, cursor: 'pointer' }}
-                />
-                {day} ({DAY_KR[i]})
-              </div>
-            ))}
+            {DAY_NAMES.map((day, i) => {
+              const jsIndex = DAY_JS_INDEX[i]
+              const checked = daysOfWeek.includes(jsIndex)
+              return (
+                <div
+                  key={i}
+                  style={{
+                    ...styles.dayCheck,
+                    ...(checked ? styles.dayChecked : styles.dayUnchecked),
+                  }}
+                  onClick={() => toggleDay(i)}
+                >
+                  <input
+                    type="checkbox"
+                    checked={checked}
+                    onChange={() => toggleDay(i)}
+                    style={{ margin: 0, cursor: 'pointer' }}
+                  />
+                  {day} ({DAY_KR[i]})
+                </div>
+              )
+            })}
           </div>
         </div>
 
@@ -564,9 +620,9 @@ export default function BulkInventoryManager({ productType, productId, onSave })
               </thead>
               <tbody>
                 {inventory.map((inv, i) => {
-                  const total = inv.quantity ?? inv.total_rooms ?? inv.total_quantity ?? 0
-                  const booked = inv.booked ?? inv.booked_quantity ?? inv.booked_rooms ?? 0
-                  const available = inv.available ?? inv.available_quantity ?? inv.available_rooms ?? (total - booked)
+                  const total = inv.total_rooms ?? inv.total_quantity ?? 0
+                  const booked = inv.booked_rooms ?? inv.booked_quantity ?? 0
+                  const available = Math.max(0, total - booked)
                   const rowStyle = getRowStyle(booked, total)
                   const status = getStatusInfo(booked, total)
                   const isEditing = editingRow === i
