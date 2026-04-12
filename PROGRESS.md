@@ -91,11 +91,22 @@ High1 리조트의 외국인 전용 예약 플랫폼. 3개 워크스페이스로
 
 ## 6. 다음에 이어서 할 일 (TODO)
 
+**현재 작업 맥락**: High1 Foreign Visitor Booking Platform **MVP 제작 중**.
+PR #1 (`claude/high1-booking-platform-mvp-raxRW`)이 main에 머지되면서 MVP
+베이스라인이 올라간 상태이고, 그 위에서 마무리 작업과 다듬기를 진행 중입니다.
+
 <!-- 이어서 작업할 때 여기 항목을 채워 넣으세요. 끝낸 항목은 [x]로 체크 -->
 
-- [ ] (기록되지 않은 진행 중 작업이 있다면 여기에 추가)
+### MVP 마무리 (in progress)
+- [ ] (직전 세션에서 진행 중이던 구체 항목이 있다면 여기에 추가)
+- [ ] MVP 전체 흐름 수동 QA — 검색 → 상세 → 예약 → 확인 → MyBookings 조회
+- [ ] 관리자 페이지에서 상품 등록/수정/재고/프로모션 전체 흐름 QA
+- [ ] 영어/중국어 i18n 누락 키 점검
+- [ ] 에러/빈 상태(empty state) UI 정리
+
+### 기술 부채 / 후속
 - [ ] multer 2.x 업그레이드 검토
-- [ ] seed.js의 placeholder 이미지 URL 처리 방식 정리
+- [ ] seed.js의 placeholder 이미지 URL 처리 방식 정리 (실제 이미지 투입 또는 빈 값)
 - [ ] `backend/uploads/` 운영 배포 시 영속 스토리지 전략
 
 ---
