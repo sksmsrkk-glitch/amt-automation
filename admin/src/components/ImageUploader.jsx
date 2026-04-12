@@ -93,6 +93,70 @@ const styles = {
   },
 }
 
+// Claude API rejects "many-image requests" when any image exceeds 2000px on
+// either side. Downscale in the browser before upload so we never send a file
+// above that limit.
+const MAX_DIMENSION = 2000
+
+const resizeImageFile = (file) =>
+  new Promise((resolve, reject) => {
+    // Skip non-raster formats (e.g. animated GIF, SVG) - let the backend handle them.
+    if (!/^image\/(jpeg|png|webp)$/i.test(file.type)) {
+      resolve(file)
+      return
+    }
+
+    const reader = new FileReader()
+    reader.onerror = () => reject(reader.error || new Error('Failed to read file'))
+    reader.onload = () => {
+      const img = new Image()
+      img.onerror = () => reject(new Error('Failed to decode image'))
+      img.onload = () => {
+        const { width, height } = img
+        if (width <= MAX_DIMENSION && height <= MAX_DIMENSION) {
+          resolve(file)
+          return
+        }
+
+        const scale = Math.min(MAX_DIMENSION / width, MAX_DIMENSION / height)
+        const targetW = Math.round(width * scale)
+        const targetH = Math.round(height * scale)
+
+        const canvas = document.createElement('canvas')
+        canvas.width = targetW
+        canvas.height = targetH
+        const ctx = canvas.getContext('2d')
+        if (!ctx) {
+          resolve(file)
+          return
+        }
+        ctx.drawImage(img, 0, 0, targetW, targetH)
+
+        const mime = file.type === 'image/png' ? 'image/png' : 'image/jpeg'
+        const quality = mime === 'image/jpeg' ? 0.9 : undefined
+        canvas.toBlob(
+          (blob) => {
+            if (!blob) {
+              resolve(file)
+              return
+            }
+            const ext = mime === 'image/png' ? '.png' : '.jpg'
+            const baseName = file.name.replace(/\.[^.]+$/, '') || 'image'
+            const resized = new File([blob], baseName + ext, {
+              type: mime,
+              lastModified: Date.now(),
+            })
+            resolve(resized)
+          },
+          mime,
+          quality
+        )
+      }
+      img.src = reader.result
+    }
+    reader.readAsDataURL(file)
+  })
+
 export default function ImageUploader({ images = [], onChange, maxImages = 5 }) {
   const [uploading, setUploading] = useState(false)
   const [dragOver, setDragOver] = useState(false)
@@ -100,8 +164,9 @@ export default function ImageUploader({ images = [], onChange, maxImages = 5 }) 
 
   const uploadFile = async (file) => {
     const token = localStorage.getItem('admin_token')
+    const prepared = await resizeImageFile(file).catch(() => file)
     const formData = new FormData()
-    formData.append('image', file)
+    formData.append('image', prepared)
 
     const res = await fetch('/api/admin/upload', {
       method: 'POST',
