@@ -147,11 +147,28 @@ const styles = {
   },
 }
 
+function getLocalizedName(obj, lang) {
+  if (!obj) return ''
+  const isCn = lang === 'cn' || lang === 'zh'
+  return (isCn ? obj.name_cn || obj.name_en : obj.name_en || obj.name_cn) || obj.name || obj.title || ''
+}
+
+function firstNumber(...vals) {
+  for (const v of vals) {
+    if (v === 0 || v) {
+      const n = Number(v)
+      if (Number.isFinite(n)) return n
+    }
+  }
+  return 0
+}
+
 export default function BookingConfirmation() {
   const { bookingId } = useParams()
   const navigate = useNavigate()
-  const { t } = useTranslation()
-  const [booking, setBooking] = useState(null)
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language || 'en'
+  const [response, setResponse] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
 
@@ -160,7 +177,7 @@ export default function BookingConfirmation() {
       setLoading(true)
       try {
         const data = await get(`/bookings/${bookingId}`)
-        setBooking(data.booking || data)
+        setResponse(data)
       } catch (err) {
         setError(err.message)
       } finally {
@@ -170,29 +187,44 @@ export default function BookingConfirmation() {
     fetchBooking()
   }, [bookingId])
 
+  // Backend GET /bookings/:id returns { booking, voucher, payment, product, room_type }
+  const booking = response?.booking || response || null
+  const voucher = response?.voucher || booking?.voucher || null
+  const productDetail = response?.product || null
+  const roomType = response?.room_type || null
+
   if (loading) {
     return <div style={styles.page}><div className="loading-container"><div className="spinner" /><span className="loading-text">{t('common.loading')}</span></div></div>
   }
 
-  if (error) {
+  if (error || !booking) {
     return (
       <div style={styles.page}>
         <div className="error-container">
           <div className="error-icon">&#9888;</div>
-          <p className="error-message">{error}</p>
+          <p className="error-message">{error || 'Booking not found'}</p>
           <button className="btn btn-primary" onClick={() => navigate('/')}>{t('common.backToHome')}</button>
         </div>
       </div>
     )
   }
 
-  const bkn = booking?.bookingNumber || booking?.confirmationNumber || bookingId
-  const voucherCode = booking?.voucherCode || booking?.voucher?.code || ''
-  const productName = booking?.productName || booking?.product?.name || booking?.hotel?.name || booking?.ticket?.name || booking?.package?.name || ''
-  const totalPrice = booking?.totalPrice || booking?.total || 0
-  const status = booking?.status || 'confirmed'
-  const bookingQuantity = booking?.quantity || 1
-  const bookingType = booking?.type || ''
+  // Backend fields are snake_case; accept camelCase too for safety.
+  const bkn = booking.booking_number || booking.bookingNumber || bookingId
+  const voucherCode = voucher?.code || booking.voucherCode || ''
+  const productName =
+    getLocalizedName(productDetail, lang) ||
+    booking.product_name ||
+    booking.productName ||
+    ''
+  const roomTypeName = getLocalizedName(roomType, lang)
+  const totalPrice = firstNumber(booking.total_price, booking.totalPrice, booking.total)
+  const status = booking.status || 'confirmed'
+  const bookingQuantity = firstNumber(booking.quantity) || 1
+  const bookingType = booking.product_type || booking.type || ''
+  const checkIn = booking.check_in || booking.checkIn || ''
+  const checkOut = booking.check_out || booking.checkOut || ''
+  const visitDate = booking.visit_date || booking.visitDate || booking.startDate || ''
 
   return (
     <div style={styles.page}>
@@ -210,7 +242,10 @@ export default function BookingConfirmation() {
           {productName && (
             <div style={styles.detailItem}>
               <div style={styles.detailLabel}>{t('booking.product')}</div>
-              <div style={styles.detailValue}>{productName}</div>
+              <div style={styles.detailValue}>
+                {productName}
+                {roomTypeName && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>{roomTypeName}</div>}
+              </div>
             </div>
           )}
           <div style={styles.detailItem}>
@@ -219,14 +254,11 @@ export default function BookingConfirmation() {
               <span className={`badge badge-${status}`}>{t(`statuses.${status}`)}</span>
             </div>
           </div>
-          {(booking?.checkIn || booking?.visitDate || booking?.startDate) && (
+          {(checkIn || visitDate) && (
             <div style={styles.detailItem}>
               <div style={styles.detailLabel}>{t('booking.dates')}</div>
               <div style={styles.detailValue}>
-                {booking.checkIn && booking.checkOut
-                  ? `${new Date(booking.checkIn).toLocaleDateString()} - ${new Date(booking.checkOut).toLocaleDateString()}`
-                  : new Date(booking.visitDate || booking.startDate).toLocaleDateString()
-                }
+                {checkIn && checkOut ? `${checkIn} - ${checkOut}` : visitDate}
               </div>
             </div>
           )}

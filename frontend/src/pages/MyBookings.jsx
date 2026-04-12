@@ -2,7 +2,17 @@ import React, { useState, useEffect } from 'react'
 import { useNavigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
-import { get, del } from '../utils/api'
+import { get, put } from '../utils/api'
+
+function firstNumber(...vals) {
+  for (const v of vals) {
+    if (v === 0 || v) {
+      const n = Number(v)
+      if (Number.isFinite(n)) return n
+    }
+  }
+  return 0
+}
 
 const styles = {
   page: {
@@ -166,9 +176,9 @@ export default function MyBookings() {
 
     setCancellingId(bookingId)
     try {
-      await del(`/bookings/${bookingId}`)
+      await put(`/bookings/${bookingId}/cancel`, {})
       setBookings(prev => prev.map(b =>
-        (b._id || b.id) === bookingId ? { ...b, status: 'cancelled' } : b
+        (b.id ?? b._id) === bookingId ? { ...b, status: 'cancelled' } : b
       ))
     } catch (err) {
       alert(err.message || 'Failed to cancel booking')
@@ -188,12 +198,13 @@ export default function MyBookings() {
   }
 
   const getDisplayDate = (booking) => {
-    if (booking.checkIn && booking.checkOut) {
-      return `${new Date(booking.checkIn).toLocaleDateString()} - ${new Date(booking.checkOut).toLocaleDateString()}`
-    }
-    if (booking.visitDate) return new Date(booking.visitDate).toLocaleDateString()
-    if (booking.startDate) return new Date(booking.startDate).toLocaleDateString()
-    if (booking.createdAt) return new Date(booking.createdAt).toLocaleDateString()
+    const checkIn = booking.check_in || booking.checkIn
+    const checkOut = booking.check_out || booking.checkOut
+    if (checkIn && checkOut) return `${checkIn} - ${checkOut}`
+    const visit = booking.visit_date || booking.visitDate || booking.startDate
+    if (visit) return visit
+    const created = booking.created_at || booking.createdAt
+    if (created) return new Date(created).toLocaleDateString()
     return '-'
   }
 
@@ -238,8 +249,14 @@ export default function MyBookings() {
       {bookings.length > 0 ? (
         <div style={styles.bookingList}>
           {bookings.map(booking => {
-            const bid = booking._id || booking.id
+            const bid = booking.id ?? booking._id
             const canCancel = booking.status === 'pending' || booking.status === 'confirmed'
+            const productType = booking.product_type || booking.type || ''
+            const bookingNumber = booking.booking_number || booking.bookingNumber || `#${bid}`
+            const totalPrice = firstNumber(booking.total_price, booking.totalPrice, booking.total)
+            const productLabel = productType
+              ? productType.charAt(0).toUpperCase() + productType.slice(1)
+              : 'Booking'
 
             return (
               <div
@@ -253,26 +270,24 @@ export default function MyBookings() {
                 <div style={styles.bookingInfo}>
                   <div style={styles.bookingHeader}>
                     <span style={styles.bookingId}>
-                      #{booking.bookingNumber || booking.confirmationNumber || bid?.slice(-8)}
+                      {bookingNumber}
                     </span>
                     <span className={`badge ${getStatusBadge(booking.status)}`}>
                       {t(`statuses.${booking.status || 'pending'}`)}
                     </span>
                   </div>
-                  <div style={styles.productName}>
-                    {booking.productName || booking.product?.name || booking.hotel?.name || booking.ticket?.name || booking.package?.name || 'Booking'}
-                  </div>
+                  <div style={styles.productName}>{productLabel}</div>
                   <div style={styles.bookingMeta}>
                     <span style={styles.metaItem}>&#128197; {getDisplayDate(booking)}</span>
-                    {booking.type && (
-                      <span style={styles.metaItem}>&#128196; {booking.type}</span>
+                    {productType && (
+                      <span style={styles.metaItem}>&#128196; {productType}</span>
                     )}
                   </div>
                 </div>
 
                 <div style={styles.rightSection}>
                   <div style={styles.totalPrice}>
-                    {t('common.currency')} {(booking.totalPrice || booking.total || 0).toLocaleString()}
+                    {t('common.currency')} {totalPrice.toLocaleString()}
                   </div>
                   <div style={styles.actionBtns}>
                     <Link

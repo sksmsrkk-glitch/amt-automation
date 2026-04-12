@@ -1,8 +1,57 @@
-import React, { useState, useEffect } from 'react'
+import React, { useState, useEffect, useMemo } from 'react'
 import { useParams, useSearchParams, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useAuth } from '../context/AuthContext'
 import { get, post } from '../utils/api'
+
+// ============================================================
+// Helpers
+// ============================================================
+
+// Parse "YYYY-MM-DD" as UTC midnight so night calculations are
+// independent of the browser's local timezone.
+function parseUTCDate(str) {
+  if (typeof str !== 'string') return null
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(str)
+  if (!m) return null
+  const d = new Date(Date.UTC(+m[1], +m[2] - 1, +m[3]))
+  return isNaN(d.getTime()) ? null : d
+}
+
+function diffNights(checkIn, checkOut) {
+  const ci = parseUTCDate(checkIn)
+  const co = parseUTCDate(checkOut)
+  if (!ci || !co) return 0
+  const ms = co.getTime() - ci.getTime()
+  if (ms <= 0) return 0
+  return Math.round(ms / (1000 * 60 * 60 * 24))
+}
+
+function getLocalizedName(obj, lang) {
+  if (!obj) return ''
+  const isCn = lang === 'cn' || lang === 'zh'
+  return (isCn ? obj.name_cn || obj.name_en : obj.name_en || obj.name_cn) || obj.name || obj.title || ''
+}
+
+// Backend uses `base_price`; older/legacy shapes use `basePrice` or `price`.
+function toNumber(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : 0
+}
+
+function roomBasePrice(room) {
+  if (!room) return 0
+  return toNumber(room.base_price ?? room.basePrice ?? room.price)
+}
+
+function productBasePrice(product) {
+  if (!product) return 0
+  return toNumber(product.base_price ?? product.basePrice ?? product.price)
+}
+
+function formatKRW(value) {
+  return '\u20A9' + toNumber(value).toLocaleString('en-US')
+}
 
 const styles = {
   page: {
@@ -219,10 +268,17 @@ export default function BookingPage() {
   const { type, id } = useParams()
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language || 'en'
   const { user, isAuthenticated } = useAuth()
 
-  const [product, setProduct] = useState(null)
+  // Separate state per product type for clarity; falls back to `product` below.
+  const [hotel, setHotel] = useState(null)
+  const [roomTypes, setRoomTypes] = useState([])
+  const [ticket, setTicket] = useState(null)
+  const [pkg, setPkg] = useState(null)
+  const [availability, setAvailability] = useState(null)
+  const [ticketAvailability, setTicketAvailability] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [submitting, setSubmitting] = useState(false)
@@ -230,9 +286,11 @@ export default function BookingPage() {
 
   const checkIn = searchParams.get('checkIn') || ''
   const checkOut = searchParams.get('checkOut') || ''
-  const roomTypeId = searchParams.get('roomType') || ''
+  const roomTypeParam = searchParams.get('roomType') || ''
+  // URL params are strings but DB ids are integers — coerce once for comparisons.
+  const roomTypeId = roomTypeParam ? Number(roomTypeParam) : null
   const visitDate = searchParams.get('date') || ''
-  const quantity = parseInt(searchParams.get('quantity') || '1', 10)
+  const quantity = Math.max(1, parseInt(searchParams.get('quantity') || '1', 10) || 1)
 
   const [form, setForm] = useState({
     name: '',
@@ -254,18 +312,26 @@ export default function BookingPage() {
     }
   }, [isAuthenticated, user])
 
+  // Load the product detail. Hotels include a sibling `room_types` array
+  // which the previous code was discarding.
   useEffect(() => {
     const fetchProduct = async () => {
       setLoading(true)
+      setError(null)
       try {
-        let endpoint = ''
-        if (type === 'hotel') endpoint = `/hotels/${id}`
-        else if (type === 'ticket') endpoint = `/tickets/${id}`
-        else if (type === 'package') endpoint = `/packages/${id}`
-        else throw new Error('Invalid booking type')
-
-        const data = await get(endpoint)
-        setProduct(data.hotel || data.ticket || data.package || data)
+        if (type === 'hotel') {
+          const data = await get(`/hotels/${id}`)
+          setHotel(data.hotel || data)
+          setRoomTypes(data.room_types || data.roomTypes || [])
+        } else if (type === 'ticket') {
+          const data = await get(`/tickets/${id}`)
+          setTicket(data.ticket || data)
+        } else if (type === 'package') {
+          const data = await get(`/packages/${id}`)
+          setPkg(data.package || data)
+        } else {
+          throw new Error('Invalid booking type')
+        }
       } catch (err) {
         setError(err.message)
       } finally {
@@ -275,51 +341,117 @@ export default function BookingPage() {
     fetchProduct()
   }, [type, id])
 
-  const calculateTotal = () => {
-    if (!product) return 0
+  // Hotel: fetch per-night availability so the summary matches what the
+  // backend will actually charge (inventory prices override base_price).
+  useEffect(() => {
+    if (type !== 'hotel' || !checkIn || !checkOut) {
+      setAvailability(null)
+      return
+    }
+    if (diffNights(checkIn, checkOut) <= 0) {
+      setAvailability(null)
+      return
+    }
+    let cancelled = false
+    const run = async () => {
+      try {
+        const data = await get(`/hotels/${id}/availability?check_in=${checkIn}&check_out=${checkOut}`)
+        if (!cancelled) setAvailability(data)
+      } catch {
+        if (!cancelled) setAvailability(null)
+      }
+    }
+    run()
+    return () => { cancelled = true }
+  }, [type, id, checkIn, checkOut])
 
+  // Ticket: fetch single-date price to reflect inventory overrides.
+  useEffect(() => {
+    if (type !== 'ticket' || !visitDate) {
+      setTicketAvailability(null)
+      return
+    }
+    let cancelled = false
+    const run = async () => {
+      try {
+        const data = await get(`/tickets/${id}/availability?date=${visitDate}`)
+        if (!cancelled) setTicketAvailability(data)
+      } catch {
+        if (!cancelled) setTicketAvailability(null)
+      }
+    }
+    run()
+    return () => { cancelled = true }
+  }, [type, id, visitDate])
+
+  // Derived "product" to keep the JSX below simple.
+  const product = type === 'hotel' ? hotel : type === 'ticket' ? ticket : pkg
+
+  // Find the room the user picked on the detail page.
+  const selectedRoom = useMemo(() => {
+    if (type !== 'hotel') return null
+    if (roomTypes.length === 0) return null
+    if (roomTypeId != null) {
+      const match = roomTypes.find(r => Number(r.id ?? r._id) === roomTypeId)
+      if (match) return match
+    }
+    return roomTypes[0]
+  }, [type, roomTypes, roomTypeId])
+
+  // Availability entry for the selected room (sums per-night inventory price).
+  const availabilityEntry = useMemo(() => {
+    if (!availability || !selectedRoom) return null
+    const entries = availability.availability || []
+    return entries.find(a => Number(a.room_type?.id) === Number(selectedRoom.id)) || null
+  }, [availability, selectedRoom])
+
+  const nights = diffNights(checkIn, checkOut)
+
+  // Final numbers used by the summary + submission.
+  const computed = useMemo(() => {
     if (type === 'hotel') {
-      let roomPrice = 0
-      const roomTypes = product.roomTypes || []
-      if (roomTypeId) {
-        const room = roomTypes.find(r => (r._id || r.id) === roomTypeId)
-        roomPrice = room ? (room.price || room.basePrice || 0) : 0
-      } else if (roomTypes.length > 0) {
-        roomPrice = roomTypes[0].price || roomTypes[0].basePrice || 0
-      } else {
-        roomPrice = product.price || product.basePrice || 0
+      const unitPerNight = roomBasePrice(selectedRoom)
+      const nightsClamped = Math.max(1, nights || 1)
+      const fallbackTotal = unitPerNight * nightsClamped
+      // Prefer inventory-aware total when availability is loaded.
+      const total = availabilityEntry ? toNumber(availabilityEntry.total_price) : fallbackTotal
+      return {
+        unitPrice: unitPerNight,
+        unitLabel: `${formatKRW(unitPerNight)} / room / night`,
+        nights: nightsClamped,
+        total,
+        isEstimate: !availabilityEntry,
       }
-
-      if (checkIn && checkOut) {
-        const nights = Math.max(1, Math.ceil((new Date(checkOut) - new Date(checkIn)) / (1000 * 60 * 60 * 24)))
-        return roomPrice * nights
-      }
-      return roomPrice
     }
-
     if (type === 'ticket') {
-      return (product.price || product.basePrice || 0) * quantity
+      const invPrice = ticketAvailability ? toNumber(ticketAvailability.price) : null
+      const unit = invPrice != null && invPrice > 0 ? invPrice : productBasePrice(ticket)
+      return {
+        unitPrice: unit,
+        unitLabel: `${formatKRW(unit)} / ${t('common.person')}`,
+        nights: 0,
+        total: unit * quantity,
+        isEstimate: invPrice == null,
+      }
     }
-
     if (type === 'package') {
-      return (product.price || product.basePrice || 0) * quantity
+      const unit = productBasePrice(pkg)
+      return {
+        unitPrice: unit,
+        unitLabel: `${formatKRW(unit)} / ${t('common.person')}`,
+        nights: 0,
+        total: unit * quantity,
+        isEstimate: true, // no per-date availability endpoint yet
+      }
     }
+    return { unitPrice: 0, unitLabel: '-', nights: 0, total: 0, isEstimate: true }
+  }, [type, selectedRoom, availabilityEntry, nights, ticket, ticketAvailability, pkg, quantity, t])
 
-    return product.price || product.basePrice || 0
-  }
-
-  const getNights = () => {
-    if (checkIn && checkOut) {
-      return Math.max(1, Math.ceil((new Date(checkOut) - new Date(checkIn)) / (1000 * 60 * 60 * 24)))
-    }
-    return 1
-  }
+  const total = computed.total
 
   const getRoomTypeName = () => {
-    if (!product || !roomTypeId) return ''
-    const roomTypes = product.roomTypes || []
-    const room = roomTypes.find(r => (r._id || r.id) === roomTypeId)
-    return room ? (room.name || room.type || '') : ''
+    if (!selectedRoom) return ''
+    return getLocalizedName(selectedRoom, lang)
   }
 
   const handleSubmit = async (e) => {
@@ -328,35 +460,51 @@ export default function BookingPage() {
       setSubmitError('Please fill in all required fields')
       return
     }
+    if (type === 'hotel') {
+      if (!checkIn || !checkOut || nights <= 0) {
+        setSubmitError('Please select valid check-in and check-out dates')
+        return
+      }
+      if (!roomTypeId && !selectedRoom) {
+        setSubmitError('Please select a room type')
+        return
+      }
+    } else {
+      if (!visitDate) {
+        setSubmitError('Please select a date')
+        return
+      }
+    }
 
     setSubmitting(true)
     setSubmitError(null)
 
     try {
+      // Backend (POST /bookings) expects snake_case fields.
       const bookingData = {
-        type,
-        productId: id,
-        guestName: form.name,
-        guestEmail: form.email,
-        guestPhone: form.phone,
-        specialRequests: form.specialRequests,
-        nationality: form.nationality,
+        guest_name: form.name,
+        guest_email: form.email,
+        guest_phone: form.phone,
+        product_type: type,
+        product_id: Number(id),
+        special_requests: form.specialRequests || null,
       }
 
       if (type === 'hotel') {
-        bookingData.checkIn = checkIn
-        bookingData.checkOut = checkOut
-        if (roomTypeId) bookingData.roomTypeId = roomTypeId
-      } else if (type === 'ticket') {
-        bookingData.visitDate = visitDate
+        bookingData.room_type_id = Number(selectedRoom?.id ?? roomTypeId)
+        bookingData.check_in = checkIn
+        bookingData.check_out = checkOut
+        bookingData.guests = 1
+        bookingData.quantity = 1 // number of rooms
+      } else {
+        bookingData.visit_date = visitDate
         bookingData.quantity = quantity
-      } else if (type === 'package') {
-        bookingData.startDate = visitDate
-        bookingData.quantity = quantity
+        bookingData.guests = quantity
       }
 
       const result = await post('/bookings', bookingData)
-      const bookingId = result.booking?._id || result.booking?.id || result._id || result.id
+      const bookingId = result.booking?.id ?? result.booking?._id
+      if (!bookingId) throw new Error('Booking created but response is missing an id')
       navigate(`/booking/confirmation/${bookingId}`)
     } catch (err) {
       setSubmitError(err.message || 'Failed to create booking')
@@ -368,8 +516,6 @@ export default function BookingPage() {
   const handleInput = (field) => (e) => {
     setForm(f => ({ ...f, [field]: e.target.value }))
   }
-
-  const total = calculateTotal()
 
   if (loading) {
     return <div style={styles.page}><div className="loading-container"><div className="spinner" /><span className="loading-text">{t('common.loading')}</span></div></div>
@@ -486,7 +632,7 @@ export default function BookingPage() {
                 {typeIcons[type] || typeIcons.hotel}
               </div>
               <div style={styles.productInfo}>
-                <div style={styles.productName}>{product.name || product.title}</div>
+                <div style={styles.productName}>{getLocalizedName(product, lang)}</div>
                 {getRoomTypeName() && (
                   <div style={styles.productMeta}>{getRoomTypeName()}</div>
                 )}
@@ -505,7 +651,7 @@ export default function BookingPage() {
                 </div>
                 <div style={styles.summaryRow}>
                   <span style={styles.summaryLabel}>{t('booking.nights')}</span>
-                  <span style={styles.summaryValue}>{getNights()} {t('common.night')}</span>
+                  <span style={styles.summaryValue}>{computed.nights} {t('common.night')}</span>
                 </div>
               </>
             )}
@@ -542,12 +688,12 @@ export default function BookingPage() {
               <div style={{ marginBottom: 8 }}>
                 <div style={styles.summaryRow}>
                   <span style={styles.summaryLabel}>Unit Price</span>
-                  <span style={styles.summaryValue}>{'\u20A9'}{(product.price || product.basePrice || 0).toLocaleString()} / person</span>
+                  <span style={styles.summaryValue}>{computed.unitLabel}</span>
                 </div>
                 {quantity > 1 && (
                   <div style={styles.summaryRow}>
                     <span style={styles.summaryLabel}>{'\u00D7'} {quantity} persons</span>
-                    <span style={styles.summaryValue}>{'\u20A9'}{total.toLocaleString()}</span>
+                    <span style={styles.summaryValue}>{formatKRW(total)}</span>
                   </div>
                 )}
               </div>
@@ -557,30 +703,23 @@ export default function BookingPage() {
               <div style={{ marginBottom: 8 }}>
                 <div style={styles.summaryRow}>
                   <span style={styles.summaryLabel}>Room Rate</span>
-                  <span style={styles.summaryValue}>{'\u20A9'}{(() => {
-                    const roomTypes = product.roomTypes || []
-                    let roomPrice = 0
-                    if (roomTypeId) {
-                      const room = roomTypes.find(r => (r._id || r.id) === roomTypeId)
-                      roomPrice = room ? (room.price || room.basePrice || 0) : 0
-                    } else if (roomTypes.length > 0) {
-                      roomPrice = roomTypes[0].price || roomTypes[0].basePrice || 0
-                    } else {
-                      roomPrice = product.price || product.basePrice || 0
-                    }
-                    return roomPrice.toLocaleString()
-                  })()} / room / night</span>
+                  <span style={styles.summaryValue}>{computed.unitLabel}</span>
                 </div>
                 <div style={styles.summaryRow}>
-                  <span style={styles.summaryLabel}>{getNights()} night{getNights() > 1 ? 's' : ''}</span>
-                  <span style={styles.summaryValue}>{'\u20A9'}{total.toLocaleString()}</span>
+                  <span style={styles.summaryLabel}>{computed.nights} night{computed.nights > 1 ? 's' : ''}</span>
+                  <span style={styles.summaryValue}>{formatKRW(total)}</span>
                 </div>
+                {computed.isEstimate && (
+                  <div style={{ ...styles.summaryRow, fontSize: '0.75rem', color: 'var(--text-muted)' }}>
+                    <span>*Estimate — final total will be confirmed on submission.</span>
+                  </div>
+                )}
               </div>
             )}
 
             <div style={styles.totalRow}>
               <span style={styles.totalLabel}>{t('booking.grandTotal')}</span>
-              <span style={styles.totalAmount}>{'\u20A9'}{total.toLocaleString()}</span>
+              <span style={styles.totalAmount}>{formatKRW(total)}</span>
             </div>
 
             <div style={styles.paymentNote}>{t('booking.paymentNote')}</div>

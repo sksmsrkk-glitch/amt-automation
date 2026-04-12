@@ -1,7 +1,23 @@
 import React, { useState, useEffect } from 'react'
 import { useParams, useNavigate, Link } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
-import { get, del } from '../utils/api'
+import { get, put } from '../utils/api'
+
+function getLocalizedName(obj, lang) {
+  if (!obj) return ''
+  const isCn = lang === 'cn' || lang === 'zh'
+  return (isCn ? obj.name_cn || obj.name_en : obj.name_en || obj.name_cn) || obj.name || obj.title || ''
+}
+
+function firstNumber(...vals) {
+  for (const v of vals) {
+    if (v === 0 || v) {
+      const n = Number(v)
+      if (Number.isFinite(n)) return n
+    }
+  }
+  return 0
+}
 
 const styles = {
   page: {
@@ -214,8 +230,9 @@ const statusColors = {
 export default function BookingDetail() {
   const { id } = useParams()
   const navigate = useNavigate()
-  const { t } = useTranslation()
-  const [booking, setBooking] = useState(null)
+  const { t, i18n } = useTranslation()
+  const lang = i18n.language || 'en'
+  const [response, setResponse] = useState(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [cancelling, setCancelling] = useState(false)
@@ -225,7 +242,7 @@ export default function BookingDetail() {
       setLoading(true)
       try {
         const data = await get(`/bookings/${id}`)
-        setBooking(data.booking || data)
+        setResponse(data)
       } catch (err) {
         setError(err.message)
       } finally {
@@ -235,12 +252,22 @@ export default function BookingDetail() {
     fetchBooking()
   }, [id])
 
+  // Backend returns { booking, voucher, payment, product, room_type }
+  const booking = response?.booking || null
+  const voucher = response?.voucher || booking?.voucher || null
+  const productDetail = response?.product || null
+  const roomType = response?.room_type || null
+  const payment = response?.payment || null
+
   const handleCancel = async () => {
     if (!window.confirm(t('myBookings.confirmCancel'))) return
     setCancelling(true)
     try {
-      await del(`/bookings/${id}`)
-      setBooking(prev => ({ ...prev, status: 'cancelled' }))
+      const res = await put(`/bookings/${id}/cancel`, {})
+      setResponse(prev => ({
+        ...(prev || {}),
+        booking: res?.booking || { ...(prev?.booking || {}), status: 'cancelled' },
+      }))
     } catch (err) {
       alert(err.message || 'Failed to cancel')
     } finally {
@@ -266,10 +293,21 @@ export default function BookingDetail() {
 
   const status = booking.status || 'pending'
   const canCancel = status === 'pending' || status === 'confirmed'
-  const bkn = booking.bookingNumber || booking.confirmationNumber || id?.slice(-8)
-  const voucherCode = booking.voucherCode || booking.voucher?.code || ''
-  const productName = booking.productName || booking.product?.name || booking.hotel?.name || booking.ticket?.name || booking.package?.name || 'Booking'
-  const totalPrice = booking.totalPrice || booking.total || 0
+  const bkn = booking.booking_number || booking.bookingNumber || id
+  const voucherCode = voucher?.code || booking.voucherCode || ''
+  const productName = getLocalizedName(productDetail, lang) || 'Booking'
+  const roomTypeName = getLocalizedName(roomType, lang)
+  const totalPrice = firstNumber(booking.total_price, booking.totalPrice, booking.total)
+  const nights = firstNumber(booking.nights) || null
+  const bookingQuantity = firstNumber(booking.quantity) || 1
+  const checkIn = booking.check_in || booking.checkIn || ''
+  const checkOut = booking.check_out || booking.checkOut || ''
+  const visitDate = booking.visit_date || booking.visitDate || ''
+  const productType = booking.product_type || booking.type || ''
+  const guestName = booking.guest_name || booking.guestName || '-'
+  const guestEmail = booking.guest_email || booking.guestEmail || '-'
+  const guestPhone = booking.guest_phone || booking.guestPhone || '-'
+  const specialRequests = booking.special_requests || booking.specialRequests || ''
   const sc = statusColors[status] || statusColors.pending
 
   const timelineSteps = [
@@ -315,36 +353,45 @@ export default function BookingDetail() {
           <div style={styles.infoGrid} className="detail-info-grid">
             <div style={styles.infoItem}>
               <div style={styles.infoLabel}>{t('booking.product')}</div>
-              <div style={styles.infoValue}>{productName}</div>
+              <div style={styles.infoValue}>
+                {productName}
+                {roomTypeName && <div style={{ fontSize: '0.8rem', color: 'var(--text-muted)', marginTop: 2 }}>{roomTypeName}</div>}
+              </div>
             </div>
-            {booking.type && (
+            {productType && (
               <div style={styles.infoItem}>
                 <div style={styles.infoLabel}>Type</div>
-                <div style={styles.infoValue}>{booking.type}</div>
+                <div style={styles.infoValue}>{productType}</div>
               </div>
             )}
-            {booking.checkIn && (
+            {checkIn && (
               <div style={styles.infoItem}>
                 <div style={styles.infoLabel}>{t('hotel.checkIn')}</div>
-                <div style={styles.infoValue}>{new Date(booking.checkIn).toLocaleDateString()}</div>
+                <div style={styles.infoValue}>{checkIn}</div>
               </div>
             )}
-            {booking.checkOut && (
+            {checkOut && (
               <div style={styles.infoItem}>
                 <div style={styles.infoLabel}>{t('hotel.checkOut')}</div>
-                <div style={styles.infoValue}>{new Date(booking.checkOut).toLocaleDateString()}</div>
+                <div style={styles.infoValue}>{checkOut}</div>
               </div>
             )}
-            {booking.visitDate && (
+            {visitDate && (
               <div style={styles.infoItem}>
                 <div style={styles.infoLabel}>{t('ticket.visitDate')}</div>
-                <div style={styles.infoValue}>{new Date(booking.visitDate).toLocaleDateString()}</div>
+                <div style={styles.infoValue}>{visitDate}</div>
               </div>
             )}
-            {booking.quantity && (
+            {bookingQuantity > 0 && (
               <div style={styles.infoItem}>
                 <div style={styles.infoLabel}>{t('ticket.quantity')}</div>
-                <div style={styles.infoValue}>{booking.quantity}</div>
+                <div style={styles.infoValue}>{bookingQuantity}</div>
+              </div>
+            )}
+            {nights != null && (
+              <div style={styles.infoItem}>
+                <div style={styles.infoLabel}>{t('booking.nights')}</div>
+                <div style={styles.infoValue}>{nights}</div>
               </div>
             )}
           </div>
@@ -354,29 +401,23 @@ export default function BookingDetail() {
           <div style={styles.infoGrid} className="detail-info-grid">
             <div style={styles.infoItem}>
               <div style={styles.infoLabel}>{t('booking.name')}</div>
-              <div style={styles.infoValue}>{booking.guestName || booking.name || '-'}</div>
+              <div style={styles.infoValue}>{guestName}</div>
             </div>
             <div style={styles.infoItem}>
               <div style={styles.infoLabel}>{t('booking.email')}</div>
-              <div style={styles.infoValue}>{booking.guestEmail || booking.email || '-'}</div>
+              <div style={styles.infoValue}>{guestEmail}</div>
             </div>
             <div style={styles.infoItem}>
               <div style={styles.infoLabel}>{t('booking.phone')}</div>
-              <div style={styles.infoValue}>{booking.guestPhone || booking.phone || '-'}</div>
+              <div style={styles.infoValue}>{guestPhone}</div>
             </div>
-            {(booking.nationality || booking.guestNationality) && (
-              <div style={styles.infoItem}>
-                <div style={styles.infoLabel}>{t('booking.nationality')}</div>
-                <div style={styles.infoValue}>{booking.nationality || booking.guestNationality}</div>
-              </div>
-            )}
           </div>
 
-          {booking.specialRequests && (
+          {specialRequests && (
             <>
               <h3 style={styles.sectionTitle}>{t('booking.specialRequests')}</h3>
               <p style={{ color: 'var(--text-secondary)', fontSize: '0.9rem', lineHeight: 1.7, marginBottom: '32px' }}>
-                {booking.specialRequests}
+                {specialRequests}
               </p>
             </>
           )}
@@ -426,6 +467,12 @@ export default function BookingDetail() {
               <span style={styles.priceLabel}>{t('booking.subtotal')}</span>
               <span style={styles.priceValue}>{t('common.currency')} {totalPrice.toLocaleString()}</span>
             </div>
+            {payment && (
+              <div style={styles.priceRow}>
+                <span style={styles.priceLabel}>Payment Status</span>
+                <span style={styles.priceValue}>{payment.status || 'pending'}</span>
+              </div>
+            )}
             <div style={styles.totalRow}>
               <span>{t('booking.grandTotal')}</span>
               <span style={styles.totalAmount}>{t('common.currency')} {totalPrice.toLocaleString()}</span>
