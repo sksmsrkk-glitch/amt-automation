@@ -81,6 +81,7 @@ function seed() {
     DELETE FROM tickets;
     DELETE FROM room_inventory;
     DELETE FROM room_types;
+    DELETE FROM showcases;
     DELETE FROM hotels;
     DELETE FROM users;
   `);
@@ -583,6 +584,88 @@ function seed() {
     JSON.stringify({ booking_number: bn3, voucher_code: vc3, product_type: 'package', guest_name: 'Zhang Wei', total_price: 199000 })
   );
 
+  // ============================================================
+  // SHOWCASES — 리조트 소개 콘텐츠 (메인 페이지 + 상세 페이지)
+  // ============================================================
+  // 4개 카테고리별 샘플 콘텐츠를 생성한다.
+  // 실제 운영에서는 어드민이 이미지 업로드 + 리치 텍스트 에디터로 관리.
+
+  db.prepare(`
+    INSERT INTO showcases (
+      title_en, title_cn, summary_en, summary_cn,
+      content_en, content_cn, thumbnail_url, images,
+      youtube_url, category, sort_order, status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    'World-Class Ski Resort',
+    '世界级滑雪度假村',
+    'Experience the finest ski slopes in South Korea with 18 trails for all skill levels.',
+    '体验韩国最优质的滑雪坡道，18条雪道适合各级滑雪爱好者。',
+    '<h2>Ski Paradise at High1 Resort</h2><p>High1 Resort features 18 ski slopes ranging from beginner-friendly to expert-level. With state-of-the-art gondola systems, snowmaking facilities covering 100% of trails, and a vertical drop of 583 meters, High1 offers an unparalleled skiing experience.</p><h3>Highlights</h3><ul><li>18 slopes across 3 peaks</li><li>Night skiing available until 22:00</li><li>Full snowmaking coverage</li><li>Ski school with multilingual instructors</li></ul>',
+    '<h2>High1度假村滑雪天堂</h2><p>High1度假村拥有18条滑雪道，从初学者到专家级别一应俱全。配备先进的缆车系统、覆盖100%雪道的造雪设施，以及583米的垂直落差，High1提供无与伦比的滑雪体验。</p><h3>亮点</h3><ul><li>3座山峰共18条雪道</li><li>夜间滑雪至22:00</li><li>全覆盖造雪系统</li><li>多语言滑雪教练</li></ul>',
+    '/uploads/showcase-ski.jpg',
+    JSON.stringify(['/uploads/showcase-ski-1.jpg', '/uploads/showcase-ski-2.jpg', '/uploads/showcase-ski-3.jpg']),
+    'https://www.youtube.com/watch?v=dQw4w9WgXcQ',
+    'activity', 0, 'published'
+  );
+
+  db.prepare(`
+    INSERT INTO showcases (
+      title_en, title_cn, summary_en, summary_cn,
+      content_en, content_cn, thumbnail_url, images,
+      youtube_url, category, sort_order, status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    'Mountain Golf Course',
+    '山地高尔夫球场',
+    'A stunning 27-hole championship golf course surrounded by pristine mountain scenery.',
+    '壮观的27洞锦标赛高尔夫球场，环抱在原始山地美景之中。',
+    '<h2>High1 Golf Club</h2><p>The High1 Country Club features a 27-hole championship course designed by renowned architect Robert Trent Jones Jr. Set at an elevation of 1,100 meters, the course offers breathtaking mountain views and cool summer weather — a golfer\'s paradise.</p><h3>Course Features</h3><ul><li>27 holes (Hill, Mountain, Valley courses)</li><li>Par 108 (3 × 36)</li><li>Elevation: 1,100m above sea level</li><li>Caddy and cart service included</li></ul>',
+    '<h2>High1高尔夫俱乐部</h2><p>High1乡村俱乐部拥有由著名建筑师Robert Trent Jones Jr.设计的27洞锦标赛球场。球场位于海拔1100米处，提供令人叹为观止的山景和凉爽的夏季天气——高尔夫爱好者的天堂。</p><h3>球场特色</h3><ul><li>27洞（丘陵、山地、山谷球场）</li><li>标准杆108杆（3×36）</li><li>海拔：1100米</li><li>包含球童和球车服务</li></ul>',
+    '/uploads/showcase-golf.jpg',
+    JSON.stringify(['/uploads/showcase-golf-1.jpg', '/uploads/showcase-golf-2.jpg']),
+    null,
+    'activity', 1, 'published'
+  );
+
+  db.prepare(`
+    INSERT INTO showcases (
+      title_en, title_cn, summary_en, summary_cn,
+      content_en, content_cn, thumbnail_url, images,
+      youtube_url, category, sort_order, status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    'Luxury Spa & Wellness',
+    '豪华水疗中心',
+    'Rejuvenate with premium spa treatments, hot springs, and sauna facilities.',
+    '享受高端水疗护理、温泉和桑拿设施，焕然一新。',
+    '<h2>Healing Spa Experience</h2><p>The High1 Healing Spa is a luxurious wellness center offering a variety of treatments including hot spring baths, aromatherapy, traditional Korean jjimjilbang, and professional massage services. Located on the resort grounds, it provides the perfect complement to an active day on the slopes or course.</p><h3>Facilities</h3><ul><li>Indoor/outdoor hot spring pools</li><li>Finnish sauna & steam room</li><li>Korean jjimjilbang (traditional sauna)</li><li>Professional massage & skin care</li><li>Relaxation lounge with mountain views</li></ul>',
+    '<h2>疗愈水疗体验</h2><p>High1疗愈水疗中心是一个豪华的健康中心，提供各种护理服务，包括温泉浴、芳香疗法、韩国传统汗蒸房和专业按摩服务。位于度假村内，是滑雪或高尔夫活动后的完美放松场所。</p><h3>设施</h3><ul><li>室内/室外温泉池</li><li>芬兰桑拿和蒸汽房</li><li>韩国传统汗蒸房</li><li>专业按摩和皮肤护理</li><li>山景休息室</li></ul>',
+    '/uploads/showcase-spa.jpg',
+    JSON.stringify(['/uploads/showcase-spa-1.jpg', '/uploads/showcase-spa-2.jpg', '/uploads/showcase-spa-3.jpg']),
+    null,
+    'facility', 2, 'published'
+  );
+
+  db.prepare(`
+    INSERT INTO showcases (
+      title_en, title_cn, summary_en, summary_cn,
+      content_en, content_cn, thumbnail_url, images,
+      youtube_url, category, sort_order, status
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    'Fine Dining & Restaurants',
+    '精致餐饮',
+    'Savor diverse culinary experiences from Korean BBQ to international cuisine.',
+    '品尝从韩式烤肉到国际美食的多样化美食体验。',
+    '<h2>Culinary Excellence</h2><p>High1 Resort offers a diverse dining scene with over 10 restaurants and cafes. From authentic Korean BBQ at Mountain Grill to Italian cuisine at Bella Vista, there\'s something to satisfy every palate. Don\'t miss the seasonal menus featuring locally-sourced ingredients from Gangwon Province.</p><h3>Restaurant Highlights</h3><ul><li>Mountain Grill — Premium Korean BBQ</li><li>Bella Vista — Italian fine dining</li><li>Noodle House — Pan-Asian noodles</li><li>Summit Café — Coffee & pastries with panoramic views</li><li>Sky Lounge — Cocktails & tapas bar</li></ul>',
+    '<h2>美食之旅</h2><p>High1度假村拥有超过10家餐厅和咖啡馆，提供多样化的餐饮体验。从Mountain Grill的正宗韩式烤肉到Bella Vista的意大利美食，应有尽有。别错过使用江原道当地食材制作的季节性菜单。</p><h3>餐厅推荐</h3><ul><li>Mountain Grill — 高级韩式烤肉</li><li>Bella Vista — 意大利精致餐饮</li><li>面屋 — 泛亚面食</li><li>Summit咖啡 — 全景咖啡和糕点</li><li>Sky Lounge — 鸡尾酒和小食吧</li></ul>',
+    '/uploads/showcase-dining.jpg',
+    JSON.stringify(['/uploads/showcase-dining-1.jpg', '/uploads/showcase-dining-2.jpg']),
+    null,
+    'dining', 3, 'published'
+  );
+
   console.log('');
   console.log('Seed completed successfully!');
   console.log('');
@@ -593,6 +676,7 @@ function seed() {
   console.log('  - 3 packages with items');
   console.log('  - 30 days of inventory for all products');
   console.log('  - 3 sample bookings (confirmed, pending, cancelled)');
+  console.log('  - 4 showcase contents (ski, golf, spa, dining)');
 }
 
 /**
