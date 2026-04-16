@@ -45,6 +45,7 @@ export default function BookingManagement() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [page, setPage] = useState(1)
+  const [pageSize, setPageSize] = useState(20)
   const [totalPages, setTotalPages] = useState(1)
   const [totalItems, setTotalItems] = useState(0)
   // filters : 필터 바의 각 입력값. 빈 문자열이면 해당 필터를 적용하지 않는다.
@@ -68,8 +69,7 @@ export default function BookingManagement() {
     try {
       const params = new URLSearchParams()
       params.set('page', page)
-      // 한 페이지당 20건 고정. 디자인이 20건 기준으로 짜여 있다.
-      params.set('limit', 20)
+      params.set('limit', pageSize)
       if (filters.status) params.set('status', filters.status)
       if (filters.paymentStatus) params.set('payment_status', filters.paymentStatus)
       if (filters.productType) params.set('product_type', filters.productType)
@@ -86,7 +86,7 @@ export default function BookingManagement() {
     } finally {
       setLoading(false)
     }
-  }, [page, filters])
+  }, [page, pageSize, filters])
 
   useEffect(() => {
     loadBookings()
@@ -96,6 +96,11 @@ export default function BookingManagement() {
   // "검색 걸고 5페이지 → 필터 해제 시 5페이지에 데이터 없음" 같은 꼬임이 없다.
   const handleFilterChange = (key, value) => {
     setFilters((prev) => ({ ...prev, [key]: value }))
+    setPage(1)
+  }
+
+  const handlePageSizeChange = (newSize) => {
+    setPageSize(newSize)
     setPage(1)
   }
 
@@ -267,12 +272,40 @@ export default function BookingManagement() {
         emptyMessage="No bookings found matching your filters"
       />
 
-      <Pagination
-        currentPage={page}
-        totalPages={totalPages}
-        totalItems={totalItems}
-        onPageChange={setPage}
-      />
+      <div style={{
+        display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        flexWrap: 'wrap', gap: '12px', marginTop: '16px',
+      }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+          <span style={{ fontSize: '0.85rem', color: '#64748b' }}>Show</span>
+          {[20, 50, 100].map(size => (
+            <button
+              key={size}
+              onClick={() => handlePageSizeChange(size)}
+              style={{
+                padding: '6px 14px',
+                borderRadius: '6px',
+                border: `1px solid ${pageSize === size ? '#3b82f6' : '#e2e8f0'}`,
+                background: pageSize === size ? '#3b82f6' : '#fff',
+                color: pageSize === size ? '#fff' : '#334155',
+                fontSize: '0.85rem',
+                fontWeight: 600,
+                cursor: 'pointer',
+                transition: 'all 0.2s',
+              }}
+            >
+              {size}
+            </button>
+          ))}
+          <span style={{ fontSize: '0.85rem', color: '#64748b' }}>per page</span>
+        </div>
+        <Pagination
+          currentPage={page}
+          totalPages={totalPages}
+          totalItems={totalItems}
+          onPageChange={setPage}
+        />
+      </div>
     </div>
   )
 }

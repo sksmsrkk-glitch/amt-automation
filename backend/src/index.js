@@ -30,6 +30,8 @@ const hotelRoutes = require('./routes/hotels');
 const ticketRoutes = require('./routes/tickets');
 const packageRoutes = require('./routes/packages');
 const bookingRoutes = require('./routes/bookings');
+// 리조트 소개 콘텐츠 — 메인 페이지 썸네일 + 상세 페이지(유튜브/갤러리/리치텍스트).
+const showcaseRoutes = require('./routes/showcases');
 
 // 관리자 전용 API. 각 라우터 내부에서 authenticate + requireAdmin 미들웨어를
 // router.use() 로 일괄 적용하고 있어, 여기서는 단순히 경로만 매핑한다.
@@ -44,6 +46,8 @@ const promotionRoutes = require('./routes/admin/promotions');
 // 조합의 1회성(또는 N회성) 구매 권한 코드를 발급한다. 자세한 설계는
 // routes/admin/access-codes.js 파일 헤더 참고.
 const accessCodeRoutes = require('./routes/admin/access-codes');
+// Showcase 콘텐츠 관리 CRUD. 어드민에서 리조트 소개 콘텐츠를 생성/수정/삭제.
+const adminShowcaseRoutes = require('./routes/admin/showcases');
 
 const app = express();
 // PORT 환경변수가 지정되지 않으면 4000 을 사용한다.
@@ -126,6 +130,7 @@ async function start() {
   app.use('/api/tickets', ticketRoutes);
   app.use('/api/packages', packageRoutes);
   app.use('/api/bookings', bookingRoutes);
+  app.use('/api/showcases', showcaseRoutes);
   app.use('/api/admin/products', adminProductRoutes);
   app.use('/api/admin/bookings', adminBookingRoutes);
   app.use('/api/admin/users', adminUserRoutes);
@@ -136,6 +141,8 @@ async function start() {
   // Access-code 구매 게이트 관리. 각 엔드포인트는 파일 내부에서
   // authenticate + requireAdmin 미들웨어로 게이팅됨.
   app.use('/api/admin/access-codes', accessCodeRoutes);
+  // Showcase 콘텐츠 CRUD — 리조트 소개 콘텐츠 관리.
+  app.use('/api/admin/showcases', adminShowcaseRoutes);
 
   // 5) 존재하지 않는 경로에 대한 404 핸들러.
   //    반드시 모든 라우트 뒤에 와야 "매칭되지 않은" 요청이 여기로 흘러온다.

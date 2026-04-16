@@ -42,6 +42,8 @@ const Login = lazy(() => import('./pages/Login'))
 const Register = lazy(() => import('./pages/Register'))
 const Profile = lazy(() => import('./pages/Profile'))
 const OrderLookup = lazy(() => import('./pages/OrderLookup'))
+const ShowcaseList = lazy(() => import('./pages/ShowcaseList'))
+const ShowcaseDetail = lazy(() => import('./pages/ShowcaseDetail'))
 
 /**
  * Suspense 가 lazy 청크를 불러오는 동안 표시할 로딩 UI.
@@ -83,6 +85,8 @@ export default function App() {
             <Route path="/register" element={<Register />} />
             <Route path="/profile" element={<Profile />} />
             <Route path="/order-lookup" element={<OrderLookup />} />
+            <Route path="/explore" element={<ShowcaseList />} />
+            <Route path="/explore/:id" element={<ShowcaseDetail />} />
           </Routes>
         </Suspense>
       </main>

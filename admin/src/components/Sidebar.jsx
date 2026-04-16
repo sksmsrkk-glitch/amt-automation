@@ -42,6 +42,7 @@ const navItems = [
   { path: '/payments', icon: '\ud83d\udcb3', label: 'Payments' },
   // Access Codes — "특정 유저 × 특정 상품" 에 대한 구매 게이트 코드 발급/관리.
   // 아이콘 🎟️ (U+1F39F) 는 티켓 느낌. 상품 게이트 이미지로 자연스럽다.
+  { path: '/showcases', icon: '\ud83d\uddbc\ufe0f', label: 'Showcases' },
   { path: '/access-codes', icon: '\ud83c\udf9f\ufe0f', label: 'Access Codes' },
   { path: '/settings', icon: '\u2699\ufe0f', label: 'Settings' },
 ]

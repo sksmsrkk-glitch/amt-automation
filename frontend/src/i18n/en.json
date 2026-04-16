@@ -4,6 +4,7 @@
     "hotels": "Hotels",
     "tickets": "Tickets",
     "packages": "Packages",
+    "explore": "Explore",
     "myBookings": "My Bookings",
     "login": "Login",
     "register": "Register",
@@ -20,6 +21,7 @@
     "featuredHotels": "Featured Hotels",
     "popularTickets": "Popular Tickets",
     "topPackages": "Top Packages",
+    "exploreResort": "Explore the Resort",
     "viewAll": "View All",
     "whyChoose": "Why Choose High1",
     "featureLocation": "Prime Location",
@@ -227,6 +229,24 @@
     "updateSuccess": "Profile updated successfully",
     "totalBookings": "Total Bookings",
     "memberSince": "Member Since"
+  },
+  "showcase": {
+    "title": "Explore High1",
+    "subtitle": "Discover everything High1 Resort has to offer",
+    "viewDetails": "Learn More",
+    "gallery": "Photo Gallery",
+    "video": "Video",
+    "relatedContent": "Related Content",
+    "categories": {
+      "all": "All",
+      "facility": "Facilities",
+      "activity": "Activities",
+      "dining": "Dining",
+      "event": "Events",
+      "nature": "Nature"
+    },
+    "noShowcases": "No content available yet.",
+    "backToList": "Back to Explore"
   },
   "footer": {
     "about": "About High1",

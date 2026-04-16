@@ -475,6 +475,41 @@ function initTables(db) {
     --                  current_uses == max_uses 면 자동으로 'exhausted' 로 전이.
     --                  관리자가 명시적으로 무효화하면 'revoked'.
     --   issued_by    — 발급한 관리자의 users.id (감사 로그 용).
+    -- ----------------------------------------------------------------------
+    -- showcases: 리조트 소개 콘텐츠 (메인 페이지 썸네일 + 상세 페이지)
+    -- ----------------------------------------------------------------------
+    -- 어드민이 리조트의 시설·액티비티·다이닝 등 다양한 정보를 콘텐츠로
+    -- 관리한다. 메인 페이지에서는 thumbnail_url + title 로 카드 형태로
+    -- 노출되고, 클릭하면 상세 페이지에서 유튜브 영상·이미지 갤러리·
+    -- 리치 텍스트를 볼 수 있다.
+    --
+    -- 핵심 컬럼 의미:
+    --   title_en/cn, summary_en/cn : 메인 페이지 카드용 다국어 제목/요약
+    --   content_en/cn              : 상세 페이지 리치 텍스트 (HTML)
+    --   thumbnail_url              : 메인 페이지 카드 썸네일 이미지
+    --   images                     : 상세 페이지 갤러리 이미지 배열 (JSON)
+    --   youtube_url                : 상세 페이지 임베딩 유튜브 URL
+    --   category                   : 콘텐츠 분류 (facility/activity/dining/event/nature)
+    --   sort_order                 : 메인 페이지 노출 순서 (오름차순)
+    --   status                     : 'published' | 'draft'
+    CREATE TABLE IF NOT EXISTS showcases (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      title_en TEXT NOT NULL,
+      title_cn TEXT,
+      summary_en TEXT,
+      summary_cn TEXT,
+      content_en TEXT,
+      content_cn TEXT,
+      thumbnail_url TEXT,
+      images TEXT DEFAULT '[]',
+      youtube_url TEXT,
+      category TEXT DEFAULT 'facility',
+      sort_order INTEGER DEFAULT 0,
+      status TEXT DEFAULT 'draft',
+      created_at TEXT DEFAULT (datetime('now')),
+      updated_at TEXT DEFAULT (datetime('now'))
+    );
+
     CREATE TABLE IF NOT EXISTS access_codes (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       code TEXT UNIQUE NOT NULL,
@@ -543,6 +578,19 @@ function initTables(db) {
     // code 컬럼으로 lookup 할 때 UNIQUE 제약이 이미 있지만, 명시적 인덱스가
     // 있으면 EXPLAIN 결과가 더 예측 가능해진다.
     "CREATE INDEX IF NOT EXISTS idx_access_codes_code ON access_codes(code)",
+    // showcases 테이블 관련 마이그레이션 — 기존 DB 에서도 컬럼이 보장되도록.
+    "ALTER TABLE showcases ADD COLUMN title_en TEXT NOT NULL DEFAULT ''",
+    "ALTER TABLE showcases ADD COLUMN title_cn TEXT",
+    "ALTER TABLE showcases ADD COLUMN summary_en TEXT",
+    "ALTER TABLE showcases ADD COLUMN summary_cn TEXT",
+    "ALTER TABLE showcases ADD COLUMN content_en TEXT",
+    "ALTER TABLE showcases ADD COLUMN content_cn TEXT",
+    "ALTER TABLE showcases ADD COLUMN thumbnail_url TEXT",
+    "ALTER TABLE showcases ADD COLUMN images TEXT DEFAULT '[]'",
+    "ALTER TABLE showcases ADD COLUMN youtube_url TEXT",
+    "ALTER TABLE showcases ADD COLUMN category TEXT DEFAULT 'facility'",
+    "ALTER TABLE showcases ADD COLUMN sort_order INTEGER DEFAULT 0",
+    "ALTER TABLE showcases ADD COLUMN status TEXT DEFAULT 'draft'",
   ];
   for (const sql of alterStatements) {
     // 이미 컬럼이 존재하면 sqlite 가 "duplicate column" 에러를 던진다.

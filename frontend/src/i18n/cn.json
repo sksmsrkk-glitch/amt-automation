@@ -4,6 +4,7 @@
     "hotels": "酒店",
     "tickets": "门票",
     "packages": "套餐",
+    "explore": "探索",
     "myBookings": "我的预订",
     "login": "登录",
     "register": "注册",
@@ -20,6 +21,7 @@
     "featuredHotels": "精选酒店",
     "popularTickets": "热门门票",
     "topPackages": "精选套餐",
+    "exploreResort": "探索度假村",
     "viewAll": "查看全部",
     "whyChoose": "为什么选择High1",
     "featureLocation": "绝佳位置",
@@ -227,6 +229,24 @@
     "updateSuccess": "资料更新成功",
     "totalBookings": "总预订数",
     "memberSince": "注册时间"
+  },
+  "showcase": {
+    "title": "探索High1",
+    "subtitle": "发现High1度假村的一切",
+    "viewDetails": "了解更多",
+    "gallery": "照片画廊",
+    "video": "视频",
+    "relatedContent": "相关内容",
+    "categories": {
+      "all": "全部",
+      "facility": "设施",
+      "activity": "活动",
+      "dining": "餐饮",
+      "event": "活动",
+      "nature": "自然"
+    },
+    "noShowcases": "暂无内容。",
+    "backToList": "返回探索"
   },
   "footer": {
     "about": "关于High1",
