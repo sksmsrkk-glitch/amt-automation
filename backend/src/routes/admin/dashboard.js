@@ -35,25 +35,25 @@ router.use(authenticate, requireAdmin);
  * total_revenue 는 `status != 'cancelled' AND payment_status = 'paid'`
  * 로 좁혀서 "실제 들어온 돈" 만 계산한다.
  */
-router.get('/overview', (req, res) => {
+router.get('/overview', async (req, res) => {
   try {
     const db = getDb();
 
-    const totalBookings = db.prepare('SELECT COUNT(*) as count FROM bookings').get().count;
-    const totalRevenue = db.prepare("SELECT COALESCE(SUM(total_price), 0) as total FROM bookings WHERE status != 'cancelled' AND payment_status = 'paid'").get().total;
-    const totalUsers = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'customer'").get().count;
+    const totalBookings = await db.prepare('SELECT COUNT(*) as count FROM bookings').get().count;
+    const totalRevenue = await db.prepare("SELECT COALESCE(SUM(total_price), 0) as total FROM bookings WHERE status != 'cancelled' AND payment_status = 'paid'").get().total;
+    const totalUsers = await db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'customer'").get().count;
 
-    const totalHotels = db.prepare("SELECT COUNT(*) as count FROM hotels WHERE status = 'active'").get().count;
-    const totalTickets = db.prepare("SELECT COUNT(*) as count FROM tickets WHERE status = 'active'").get().count;
-    const totalPackages = db.prepare("SELECT COUNT(*) as count FROM packages WHERE status = 'active'").get().count;
+    const totalHotels = await db.prepare("SELECT COUNT(*) as count FROM hotels WHERE status = 'active'").get().count;
+    const totalTickets = await db.prepare("SELECT COUNT(*) as count FROM tickets WHERE status = 'active'").get().count;
+    const totalPackages = await db.prepare("SELECT COUNT(*) as count FROM packages WHERE status = 'active'").get().count;
 
-    const pendingBookings = db.prepare("SELECT COUNT(*) as count FROM bookings WHERE status = 'pending'").get().count;
-    const confirmedBookings = db.prepare("SELECT COUNT(*) as count FROM bookings WHERE status = 'confirmed'").get().count;
-    const cancelledBookings = db.prepare("SELECT COUNT(*) as count FROM bookings WHERE status = 'cancelled'").get().count;
+    const pendingBookings = await db.prepare("SELECT COUNT(*) as count FROM bookings WHERE status = 'pending'").get().count;
+    const confirmedBookings = await db.prepare("SELECT COUNT(*) as count FROM bookings WHERE status = 'confirmed'").get().count;
+    const cancelledBookings = await db.prepare("SELECT COUNT(*) as count FROM bookings WHERE status = 'cancelled'").get().count;
 
     const today = new Date().toISOString().split('T')[0];
-    const todayBookings = db.prepare("SELECT COUNT(*) as count FROM bookings WHERE DATE(created_at) = ?").get(today).count;
-    const todayRevenue = db.prepare("SELECT COALESCE(SUM(total_price), 0) as total FROM bookings WHERE DATE(created_at) = ? AND status != 'cancelled'").get(today).total;
+    const todayBookings = await db.prepare("SELECT COUNT(*) as count FROM bookings WHERE DATE(created_at) = ?").get(today).count;
+    const todayRevenue = await db.prepare("SELECT COALESCE(SUM(total_price), 0) as total FROM bookings WHERE DATE(created_at) = ? AND status != 'cancelled'").get(today).total;
 
     res.json({
       total_bookings: totalBookings,
@@ -85,11 +85,11 @@ router.get('/overview', (req, res) => {
  * 로그인 사용자 이름/이메일을 LEFT JOIN 으로 함께 가져와 UI 테이블에
  * 바로 렌더링할 수 있게 한다 (게스트 예약은 user_name/user_email 이 null).
  */
-router.get('/recent-bookings', (req, res) => {
+router.get('/recent-bookings', async (req, res) => {
   try {
     const db = getDb();
 
-    const bookings = db.prepare(`
+    const bookings = await db.prepare(`
       SELECT b.*, u.name as user_name, u.email as user_email
       FROM bookings b
       LEFT JOIN users u ON b.user_id = u.id
@@ -113,7 +113,7 @@ router.get('/recent-bookings', (req, res) => {
  * 에서 빈 날짜를 0 으로 채워 30개 (또는 그 이상) row 를 반환한다.
  * 이렇게 해야 프런트 차트 라이브러리가 x 축을 끊김 없이 그릴 수 있다.
  */
-router.get('/revenue-chart', (req, res) => {
+router.get('/revenue-chart', async (req, res) => {
   try {
     const db = getDb();
 
@@ -121,7 +121,7 @@ router.get('/revenue-chart', (req, res) => {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const startDate = thirtyDaysAgo.toISOString().split('T')[0];
 
-    const revenueData = db.prepare(`
+    const revenueData = await db.prepare(`
       SELECT DATE(created_at) as date, COALESCE(SUM(total_price), 0) as revenue, COUNT(*) as booking_count
       FROM bookings
       WHERE DATE(created_at) >= ? AND status != 'cancelled'
@@ -163,7 +163,7 @@ router.get('/revenue-chart', (req, res) => {
  * CASE WHEN 으로 한 번의 쿼리에서 각 타입의 개수를 집계. 빈 날짜는
  * 위의 revenue-chart 와 같은 방식으로 0 으로 채운다.
  */
-router.get('/booking-chart', (req, res) => {
+router.get('/booking-chart', async (req, res) => {
   try {
     const db = getDb();
 
@@ -171,7 +171,7 @@ router.get('/booking-chart', (req, res) => {
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
     const startDate = thirtyDaysAgo.toISOString().split('T')[0];
 
-    const bookingData = db.prepare(`
+    const bookingData = await db.prepare(`
       SELECT DATE(created_at) as date, COUNT(*) as count,
         COUNT(CASE WHEN product_type = 'hotel' THEN 1 END) as hotel_count,
         COUNT(CASE WHEN product_type = 'ticket' THEN 1 END) as ticket_count,

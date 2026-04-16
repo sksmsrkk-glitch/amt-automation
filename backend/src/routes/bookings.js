@@ -79,7 +79,7 @@ function generateVoucherCode() {
  * 재사용: admin/bookings.js 의 취소/환불 경로가 module.exports 를 통해
  *         이 함수를 다시 import 한다.
  */
-function restoreBookingInventory(db, booking) {
+async function restoreBookingInventory(db, booking) {
   if (!booking) return;
   const qty = booking.quantity || 1;
 
@@ -95,15 +95,15 @@ function restoreBookingInventory(db, booking) {
     while (cursor < endDate) {
       // YYYY-MM-DD 로 정규화해 DB 의 date 컬럼과 매칭.
       const dateStr = cursor.toISOString().split('T')[0];
-      updateInv.run(qty, booking.room_type_id, dateStr);
+      await updateInv.run(qty, booking.room_type_id, dateStr);
       cursor.setDate(cursor.getDate() + 1);
     }
   } else if (booking.product_type === 'ticket' && booking.visit_date) {
-    db.prepare(
+    await db.prepare(
       'UPDATE ticket_inventory SET booked_quantity = MAX(0, booked_quantity - ?) WHERE ticket_id = ? AND date = ?'
     ).run(qty, booking.product_id, booking.visit_date);
   } else if (booking.product_type === 'package' && booking.visit_date) {
-    db.prepare(
+    await db.prepare(
       'UPDATE package_inventory SET booked_quantity = MAX(0, booked_quantity - ?) WHERE package_id = ? AND date = ?'
     ).run(qty, booking.product_id, booking.visit_date);
   }
@@ -127,10 +127,10 @@ const PRODUCT_TABLES = {
  * 변환하도록 한다. PRODUCT_TABLES 의 value 는 서버 상수이므로 동적
  * 테이블 이름이 SQL 에 들어가도 안전.
  */
-function readProductRestriction(db, productType, productId) {
+async function readProductRestriction(db, productType, productId) {
   const table = PRODUCT_TABLES[productType];
   if (!table) return { exists: false, is_restricted: false };
-  const row = db.prepare(
+  const row = await db.prepare(
     `SELECT is_restricted FROM ${table} WHERE id = ?`
   ).get(productId);
   if (!row) return { exists: false, is_restricted: false };
@@ -159,7 +159,7 @@ function readProductRestriction(db, productType, productId) {
  * throw 하는 Error 에는 `.status` 힌트를 붙여 라우트 catch 에서 그대로
  * HTTP 응답 코드로 번역된다. (bookings.js 의 기존 트랜잭션 패턴과 동일.)
  */
-function validateAndConsumeAccessCode(db, { code, userId, productType, productId }) {
+async function validateAndConsumeAccessCode(db, { code, userId, productType, productId }) {
   if (!code) {
     const err = new Error('Access code is required for this product.');
     err.status = 403;
@@ -176,7 +176,7 @@ function validateAndConsumeAccessCode(db, { code, userId, productType, productId
   // 따라 정확한 에러 메시지를 돌려준다. 그래야 "exhausted" / "revoked"
   // 를 "Invalid" 로 뭉뚱그리지 않고 원인별로 구분해 사용자에게 전달할 수
   // 있다.
-  const row = db.prepare('SELECT * FROM access_codes WHERE code = ?').get(code);
+  const row = await db.prepare('SELECT * FROM access_codes WHERE code = ?').get(code);
   if (!row) {
     const err = new Error('Invalid access code.');
     err.status = 403;
@@ -228,7 +228,7 @@ function validateAndConsumeAccessCode(db, { code, userId, productType, productId
   //   CASE current_uses + 1 >= max_uses THEN 'exhausted' ELSE 'active'
   //
   // sql.js 는 CASE 를 지원하므로 별도 재조회 없이 끝낼 수 있다.
-  db.prepare(`
+  await db.prepare(`
     UPDATE access_codes
        SET current_uses = current_uses + 1,
            status = CASE
@@ -256,11 +256,11 @@ function validateAndConsumeAccessCode(db, { code, userId, productType, productId
  * 반드시 호출 측의 트랜잭션 안에서 실행. admin/bookings.js 의 cancel /
  * refund 경로가 이 함수를 재사용한다 (module.exports 로 노출).
  */
-function restoreAccessCodeUsage(db, booking) {
+async function restoreAccessCodeUsage(db, booking) {
   if (!booking || !booking.access_code_id) return;
   // current_uses 를 안전하게 감소 (음수 방지) + 한도 초과 해제 시 status 복원.
   // 단, 관리자가 이미 'revoked' 시킨 코드는 그대로 둔다.
-  db.prepare(`
+  await db.prepare(`
     UPDATE access_codes
        SET current_uses = MAX(0, current_uses - 1),
            status = CASE
@@ -308,11 +308,11 @@ function tryGetUserId(req) {
  *    남의 예약을 훑는 것은 막아야 한다. "이메일 소유자만 접근 가능"
  *    규칙으로 타협했다.
  */
-function isAuthorizedForBooking(req, booking) {
+async function isAuthorizedForBooking(req, booking) {
   const userId = tryGetUserId(req);
   if (userId) {
     const db = getDb();
-    const user = db.prepare('SELECT id, role FROM users WHERE id = ?').get(userId);
+    const user = await db.prepare('SELECT id, role FROM users WHERE id = ?').get(userId);
     if (user && user.role === 'admin') return true;
     if (user && booking.user_id && user.id === booking.user_id) return true;
   }
@@ -359,7 +359,7 @@ function isAuthorizedForBooking(req, booking) {
  * 로그인 사용자: Authorization 헤더가 있으면 tryGetUserId() 로 user_id
  * 를 추출해 예약 row 에 붙인다. 아니면 NULL (= 게스트 예약).
  */
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const db = getDb();
     const {
@@ -403,7 +403,7 @@ router.post('/', (req, res) => {
     // 지점에서 throw 해도 자동으로 인벤토리 감소가 되돌려진다.
     let created;
     try {
-      created = db.transaction(() => {
+      created = await db.transaction(async () => {
         let totalPrice = 0;
         let nights = 1;
         // 이 예약이 어떤 access_code 로 만들어졌는지 추적. is_restricted=1
@@ -424,14 +424,14 @@ router.post('/', (req, res) => {
         //    - 실패하면 .status 힌트가 붙은 Error 를 throw → 전체 롤백
         // 3) restricted 가 아니면 access_code 가 와도 silent ignore (쿠폰이
         //    아니라 게이트이기 때문 — 실제로 필요 없을 때 소비하지 않는다).
-        const restriction = readProductRestriction(db, product_type, product_id);
+        const restriction = await readProductRestriction(db, product_type, product_id);
         if (!restriction.exists) {
           const err = new Error('Product not found.');
           err.status = 404;
           throw err;
         }
         if (restriction.is_restricted) {
-          accessCodeId = validateAndConsumeAccessCode(db, {
+          accessCodeId = await validateAndConsumeAccessCode(db, {
             code: access_code,
             userId,
             productType: product_type,
@@ -449,7 +449,7 @@ router.post('/', (req, res) => {
             throw err;
           }
 
-          const roomType = db.prepare('SELECT * FROM room_types WHERE id = ? AND status = ?').get(room_type_id, 'active');
+          const roomType = await db.prepare('SELECT * FROM room_types WHERE id = ? AND status = ?').get(room_type_id, 'active');
           if (!roomType) {
             const err = new Error('Room type not found.');
             err.status = 404;
@@ -473,7 +473,7 @@ router.post('/', (req, res) => {
           const cursor = new Date(check_in);
           while (cursor < endDate) {
             const dateStr = cursor.toISOString().split('T')[0];
-            const inv = db.prepare('SELECT * FROM room_inventory WHERE room_type_id = ? AND date = ?').get(room_type_id, dateStr);
+            const inv = await db.prepare('SELECT * FROM room_inventory WHERE room_type_id = ? AND date = ?').get(room_type_id, dateStr);
 
             if (!inv || (inv.total_rooms - inv.booked_rooms) < qty) {
               // 단 하루라도 가용성이 부족하면 전체 실패 → 트랜잭션 롤백.
@@ -487,7 +487,7 @@ router.post('/', (req, res) => {
             const nightPrice = inv.price || roomType.base_price;
             totalPrice += nightPrice * qty;
 
-            updateInv.run(qty, room_type_id, dateStr);
+            await updateInv.run(qty, room_type_id, dateStr);
             cursor.setDate(cursor.getDate() + 1);
           }
         } else if (product_type === 'ticket') {
@@ -497,14 +497,14 @@ router.post('/', (req, res) => {
             throw err;
           }
 
-          const ticket = db.prepare('SELECT * FROM tickets WHERE id = ? AND status = ?').get(product_id, 'active');
+          const ticket = await db.prepare('SELECT * FROM tickets WHERE id = ? AND status = ?').get(product_id, 'active');
           if (!ticket) {
             const err = new Error('Ticket not found.');
             err.status = 404;
             throw err;
           }
 
-          const inv = db.prepare('SELECT * FROM ticket_inventory WHERE ticket_id = ? AND date = ?').get(product_id, visit_date);
+          const inv = await db.prepare('SELECT * FROM ticket_inventory WHERE ticket_id = ? AND date = ?').get(product_id, visit_date);
           if (!inv || (inv.total_quantity - inv.booked_quantity) < qty) {
             const err = new Error(`No availability for ${visit_date}.`);
             err.status = 400;
@@ -514,7 +514,7 @@ router.post('/', (req, res) => {
           const price = inv.price || ticket.base_price;
           totalPrice = price * qty;
 
-          db.prepare('UPDATE ticket_inventory SET booked_quantity = booked_quantity + ? WHERE ticket_id = ? AND date = ?')
+          await db.prepare('UPDATE ticket_inventory SET booked_quantity = booked_quantity + ? WHERE ticket_id = ? AND date = ?')
             .run(qty, product_id, visit_date);
         } else if (product_type === 'package') {
           if (!visit_date) {
@@ -523,14 +523,14 @@ router.post('/', (req, res) => {
             throw err;
           }
 
-          const pkg = db.prepare('SELECT * FROM packages WHERE id = ? AND status = ?').get(product_id, 'active');
+          const pkg = await db.prepare('SELECT * FROM packages WHERE id = ? AND status = ?').get(product_id, 'active');
           if (!pkg) {
             const err = new Error('Package not found.');
             err.status = 404;
             throw err;
           }
 
-          const inv = db.prepare('SELECT * FROM package_inventory WHERE package_id = ? AND date = ?').get(product_id, visit_date);
+          const inv = await db.prepare('SELECT * FROM package_inventory WHERE package_id = ? AND date = ?').get(product_id, visit_date);
           if (!inv || (inv.total_quantity - inv.booked_quantity) < qty) {
             const err = new Error(`No availability for ${visit_date}.`);
             err.status = 400;
@@ -540,7 +540,7 @@ router.post('/', (req, res) => {
           const price = inv.price || pkg.base_price;
           totalPrice = price * qty;
 
-          db.prepare('UPDATE package_inventory SET booked_quantity = booked_quantity + ? WHERE package_id = ? AND date = ?')
+          await db.prepare('UPDATE package_inventory SET booked_quantity = booked_quantity + ? WHERE package_id = ? AND date = ?')
             .run(qty, product_id, visit_date);
         }
 
@@ -549,7 +549,7 @@ router.post('/', (req, res) => {
         // 예약 / 결제(초기 상태: pending) / 바우처를 동일 트랜잭션 안에서
         // INSERT 한다. 한 건이라도 실패하면 위의 인벤토리 감소까지 전부
         // 롤백된다.
-        const insertResult = db.prepare(`
+        const insertResult = await db.prepare(`
           INSERT INTO bookings (booking_number, user_id, guest_name, guest_email, guest_phone, product_type, product_id, room_type_id, check_in, check_out, visit_date, guests, quantity, nights, total_price, special_requests, access_code_id)
           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `).run(
@@ -572,7 +572,7 @@ router.post('/', (req, res) => {
           throw err;
         }
 
-        db.prepare(`
+        await db.prepare(`
           INSERT INTO payments (booking_id, amount, currency, method, status)
           VALUES (?, ?, 'KRW', 'stripe', 'pending')
         `).run(bookingId, totalPrice);
@@ -586,13 +586,13 @@ router.post('/', (req, res) => {
           total_price: totalPrice
         });
 
-        db.prepare(`
+        await db.prepare(`
           INSERT INTO vouchers (booking_id, code, qr_data)
           VALUES (?, ?, ?)
         `).run(bookingId, voucherCode, qrData);
 
-        const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(bookingId);
-        const voucher = db.prepare('SELECT * FROM vouchers WHERE booking_id = ?').get(bookingId);
+        const booking = await db.prepare('SELECT * FROM bookings WHERE id = ?').get(bookingId);
+        const voucher = await db.prepare('SELECT * FROM vouchers WHERE booking_id = ?').get(bookingId);
         return { booking, voucher };
       })();
     } catch (txErr) {
@@ -628,7 +628,7 @@ router.post('/', (req, res) => {
  * 이메일 + 예약 번호만으로 내 예약을 다시 찾을 수 있어야 하기 때문.
  * 악용 가능성이 있어 WHERE 조건은 전부 exact match (LIKE 아님) 이다.
  */
-router.get('/lookup', (req, res) => {
+router.get('/lookup', async (req, res) => {
   try {
     const db = getDb();
     const { email, phone, booking_number } = req.query;
@@ -657,14 +657,15 @@ router.get('/lookup', (req, res) => {
 
     query += ' ORDER BY created_at DESC';
 
-    const bookings = db.prepare(query).all(...params);
+    const bookings = await db.prepare(query).all(...params);
 
     // 각 예약에 바우처를 합쳐 반환. 프런트엔드가 목록 페이지에서 바우처
     // 상태를 바로 보여줄 수 있게 해준다.
-    const results = bookings.map(booking => {
-      const voucher = db.prepare('SELECT * FROM vouchers WHERE booking_id = ?').get(booking.id);
-      return { ...booking, voucher };
-    });
+    const results = [];
+    for (const booking of bookings) {
+      const voucher = await db.prepare('SELECT * FROM vouchers WHERE booking_id = ?').get(booking.id);
+      results.push({ ...booking, voucher });
+    }
 
     res.json({ bookings: results });
   } catch (err) {
@@ -680,15 +681,16 @@ router.get('/lookup', (req, res) => {
  *
  * 응답: { bookings: [{ ...booking, voucher }] }
  */
-router.get('/my', authenticate, (req, res) => {
+router.get('/my', authenticate, async (req, res) => {
   try {
     const db = getDb();
-    const bookings = db.prepare('SELECT * FROM bookings WHERE user_id = ? ORDER BY created_at DESC').all(req.user.id);
+    const bookings = await db.prepare('SELECT * FROM bookings WHERE user_id = ? ORDER BY created_at DESC').all(req.user.id);
 
-    const results = bookings.map(booking => {
-      const voucher = db.prepare('SELECT * FROM vouchers WHERE booking_id = ?').get(booking.id);
-      return { ...booking, voucher };
-    });
+    const results = [];
+    for (const booking of bookings) {
+      const voucher = await db.prepare('SELECT * FROM vouchers WHERE booking_id = ?').get(booking.id);
+      results.push({ ...booking, voucher });
+    }
 
     res.json({ bookings: results });
   } catch (err) {
@@ -710,39 +712,39 @@ router.get('/my', authenticate, (req, res) => {
  *   403 권한 없음
  *   404 예약 없음
  */
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
     const db = getDb();
-    const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(req.params.id);
+    const booking = await db.prepare('SELECT * FROM bookings WHERE id = ?').get(req.params.id);
 
     if (!booking) {
       return res.status(404).json({ error: 'Booking not found.' });
     }
 
-    if (!isAuthorizedForBooking(req, booking)) {
+    if (!await isAuthorizedForBooking(req, booking)) {
       return res.status(403).json({ error: 'Not authorized to view this booking.' });
     }
 
-    const voucher = db.prepare('SELECT * FROM vouchers WHERE booking_id = ?').get(booking.id);
-    const payment = db.prepare('SELECT * FROM payments WHERE booking_id = ?').get(booking.id);
+    const voucher = await db.prepare('SELECT * FROM vouchers WHERE booking_id = ?').get(booking.id);
+    const payment = await db.prepare('SELECT * FROM payments WHERE booking_id = ?').get(booking.id);
 
     // 상품 세부 정보를 함께 채워 주어 프런트엔드 확인/상세 페이지가
     // 두 번째 round-trip 없이 렌더링할 수 있게 한다. JSON 배열 컬럼
     // (amenities / includes) 은 여기서 파싱한다.
     let product = null;
     if (booking.product_type === 'hotel') {
-      product = db.prepare('SELECT * FROM hotels WHERE id = ?').get(booking.product_id);
+      product = await db.prepare('SELECT * FROM hotels WHERE id = ?').get(booking.product_id);
       if (product) product.amenities = JSON.parse(product.amenities || '[]');
     } else if (booking.product_type === 'ticket') {
-      product = db.prepare('SELECT * FROM tickets WHERE id = ?').get(booking.product_id);
+      product = await db.prepare('SELECT * FROM tickets WHERE id = ?').get(booking.product_id);
     } else if (booking.product_type === 'package') {
-      product = db.prepare('SELECT * FROM packages WHERE id = ?').get(booking.product_id);
+      product = await db.prepare('SELECT * FROM packages WHERE id = ?').get(booking.product_id);
       if (product) product.includes = JSON.parse(product.includes || '[]');
     }
 
     let roomType = null;
     if (booking.room_type_id) {
-      roomType = db.prepare('SELECT * FROM room_types WHERE id = ?').get(booking.room_type_id);
+      roomType = await db.prepare('SELECT * FROM room_types WHERE id = ?').get(booking.room_type_id);
       if (roomType) roomType.amenities = JSON.parse(roomType.amenities || '[]');
     }
 
@@ -770,16 +772,16 @@ router.get('/:id', (req, res) => {
  *   404 예약 없음
  *   500 내부 에러
  */
-router.put('/:id/cancel', (req, res) => {
+router.put('/:id/cancel', async (req, res) => {
   try {
     const db = getDb();
-    const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(req.params.id);
+    const booking = await db.prepare('SELECT * FROM bookings WHERE id = ?').get(req.params.id);
 
     if (!booking) {
       return res.status(404).json({ error: 'Booking not found.' });
     }
 
-    if (!isAuthorizedForBooking(req, booking)) {
+    if (!await isAuthorizedForBooking(req, booking)) {
       return res.status(403).json({ error: 'Not authorized to cancel this booking.' });
     }
 
@@ -791,16 +793,16 @@ router.put('/:id/cancel', (req, res) => {
     // → 바우처 비활성을 한 트랜잭션에서 처리한다. 중간에 크래시가 나도
     // "인벤토리는 풀렸는데 예약은 아직 confirmed" 같은 반쯤 취소된
     // 상태가 생기지 않는다.
-    const updated = db.transaction(() => {
-      restoreBookingInventory(db, booking);
+    const updated = await db.transaction(async () => {
+      await restoreBookingInventory(db, booking);
       // booking.access_code_id 가 NULL 이 아니면(= restricted 상품을 코드로
       // 예약했던 경우) 해당 access_code 의 current_uses 를 1 감소시키고
       // 필요하면 'exhausted' → 'active' 로 상태를 복원한다. NULL 이면
       // 함수 내부에서 no-op.
-      restoreAccessCodeUsage(db, booking);
-      db.prepare("UPDATE bookings SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?").run(booking.id);
-      db.prepare("UPDATE vouchers SET status = 'cancelled' WHERE booking_id = ?").run(booking.id);
-      return db.prepare('SELECT * FROM bookings WHERE id = ?').get(booking.id);
+      await restoreAccessCodeUsage(db, booking);
+      await db.prepare("UPDATE bookings SET status = 'cancelled', updated_at = datetime('now') WHERE id = ?").run(booking.id);
+      await db.prepare("UPDATE vouchers SET status = 'cancelled' WHERE booking_id = ?").run(booking.id);
+      return await db.prepare('SELECT * FROM bookings WHERE id = ?').get(booking.id);
     })();
 
     res.json({ message: 'Booking cancelled successfully.', booking: updated });

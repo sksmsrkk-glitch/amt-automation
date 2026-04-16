@@ -61,7 +61,7 @@ function getDateString(daysFromNow) {
  *
  * 부작용: DB 에 대규모 INSERT 가 일어나고 high1.db 가 여러 번 저장된다.
  */
-function seed() {
+async function seed() {
   const db = getDb();
 
   console.log('Seeding High1 Resort database...');
@@ -70,7 +70,7 @@ function seed() {
   // vouchers / payments → bookings → (package_inventory, package_items) →
   // packages → ticket_inventory → tickets → room_inventory → room_types →
   // hotels → users 순.
-  db.exec(`
+  await db.exec(`
     DELETE FROM vouchers;
     DELETE FROM payments;
     DELETE FROM bookings;
@@ -82,6 +82,8 @@ function seed() {
     DELETE FROM room_inventory;
     DELETE FROM room_types;
     DELETE FROM showcases;
+    DELETE FROM access_codes;
+    DELETE FROM promotions;
     DELETE FROM hotels;
     DELETE FROM users;
   `);
@@ -132,25 +134,25 @@ function seed() {
   const adminPassword = bcrypt.hashSync(adminPwPlain, 10);
   const guestPassword = bcrypt.hashSync(guestPwPlain, 10);
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO users (email, password, name, phone, nationality, role, language)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run('admin@high1.com', adminPassword, 'Admin', '+82-33-745-5000', 'KR', 'admin', 'en');
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO users (email, password, name, phone, nationality, role, language)
     VALUES (?, ?, ?, ?, ?, ?, ?)
   `).run('guest@test.com', guestPassword, 'Zhang Wei', '+86-138-0000-1234', 'CN', 'customer', 'cn');
 
-  const adminUser = db.prepare("SELECT id FROM users WHERE email = 'admin@high1.com'").get();
-  const guestUser = db.prepare("SELECT id FROM users WHERE email = 'guest@test.com'").get();
+  const adminUser = await db.prepare("SELECT id FROM users WHERE email = 'admin@high1.com'").get();
+  const guestUser = await db.prepare("SELECT id FROM users WHERE email = 'guest@test.com'").get();
 
   // ============================================================
   // HOTELS
   // ============================================================
   console.log('Creating hotels...');
 
-  const hotel1 = db.prepare(`
+  const hotel1 = await db.prepare(`
     INSERT INTO hotels (name_en, name_cn, description_en, description_cn, address, image_url, rating, amenities, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -165,7 +167,7 @@ function seed() {
     'active'
   );
 
-  const hotel2 = db.prepare(`
+  const hotel2 = await db.prepare(`
     INSERT INTO hotels (name_en, name_cn, description_en, description_cn, address, image_url, rating, amenities, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -180,7 +182,7 @@ function seed() {
     'active'
   );
 
-  const hotel3 = db.prepare(`
+  const hotel3 = await db.prepare(`
     INSERT INTO hotels (name_en, name_cn, description_en, description_cn, address, image_url, rating, amenities, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -201,7 +203,7 @@ function seed() {
   console.log('Creating room types...');
 
   // Grand Hotel rooms
-  const rt1 = db.prepare(`
+  const rt1 = await db.prepare(`
     INSERT INTO room_types (hotel_id, name_en, name_cn, description_en, description_cn, max_guests, bed_type, amenities, image_url, base_price, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -214,7 +216,7 @@ function seed() {
     '/images/rooms/grand-deluxe.jpg', 280000, 'active'
   );
 
-  const rt2 = db.prepare(`
+  const rt2 = await db.prepare(`
     INSERT INTO room_types (hotel_id, name_en, name_cn, description_en, description_cn, max_guests, bed_type, amenities, image_url, base_price, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -227,7 +229,7 @@ function seed() {
     '/images/rooms/grand-suite.jpg', 450000, 'active'
   );
 
-  const rt3 = db.prepare(`
+  const rt3 = await db.prepare(`
     INSERT INTO room_types (hotel_id, name_en, name_cn, description_en, description_cn, max_guests, bed_type, amenities, image_url, base_price, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -241,7 +243,7 @@ function seed() {
   );
 
   // Mountain Lodge rooms
-  const rt4 = db.prepare(`
+  const rt4 = await db.prepare(`
     INSERT INTO room_types (hotel_id, name_en, name_cn, description_en, description_cn, max_guests, bed_type, amenities, image_url, base_price, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -254,7 +256,7 @@ function seed() {
     '/images/rooms/lodge-standard.jpg', 150000, 'active'
   );
 
-  const rt5 = db.prepare(`
+  const rt5 = await db.prepare(`
     INSERT INTO room_types (hotel_id, name_en, name_cn, description_en, description_cn, max_guests, bed_type, amenities, image_url, base_price, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -268,7 +270,7 @@ function seed() {
   );
 
   // Valley Inn rooms
-  const rt6 = db.prepare(`
+  const rt6 = await db.prepare(`
     INSERT INTO room_types (hotel_id, name_en, name_cn, description_en, description_cn, max_guests, bed_type, amenities, image_url, base_price, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -281,7 +283,7 @@ function seed() {
     '/images/rooms/valley-economy.jpg', 80000, 'active'
   );
 
-  const rt7 = db.prepare(`
+  const rt7 = await db.prepare(`
     INSERT INTO room_types (hotel_id, name_en, name_cn, description_en, description_cn, max_guests, bed_type, amenities, image_url, base_price, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -294,7 +296,7 @@ function seed() {
     '/images/rooms/valley-twin.jpg', 120000, 'active'
   );
 
-  const rt8 = db.prepare(`
+  const rt8 = await db.prepare(`
     INSERT INTO room_types (hotel_id, name_en, name_cn, description_en, description_cn, max_guests, bed_type, amenities, image_url, base_price, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -312,7 +314,7 @@ function seed() {
   // ============================================================
   console.log('Creating tickets...');
 
-  const ticket1 = db.prepare(`
+  const ticket1 = await db.prepare(`
     INSERT INTO tickets (name_en, name_cn, description_en, description_cn, category, image_url, base_price, duration, location, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -324,7 +326,7 @@ function seed() {
     'High1 Ski Resort - All Peaks', 'active'
   );
 
-  const ticket2 = db.prepare(`
+  const ticket2 = await db.prepare(`
     INSERT INTO tickets (name_en, name_cn, description_en, description_cn, category, image_url, base_price, duration, location, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -336,7 +338,7 @@ function seed() {
     'High1 Resort Snow Park', 'active'
   );
 
-  const ticket3 = db.prepare(`
+  const ticket3 = await db.prepare(`
     INSERT INTO tickets (name_en, name_cn, description_en, description_cn, category, image_url, base_price, duration, location, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -348,7 +350,7 @@ function seed() {
     'High1 Resort Gondola Station', 'active'
   );
 
-  const ticket4 = db.prepare(`
+  const ticket4 = await db.prepare(`
     INSERT INTO tickets (name_en, name_cn, description_en, description_cn, category, image_url, base_price, duration, location, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -360,7 +362,7 @@ function seed() {
     'High1 Ski School', 'active'
   );
 
-  const ticket5 = db.prepare(`
+  const ticket5 = await db.prepare(`
     INSERT INTO tickets (name_en, name_cn, description_en, description_cn, category, image_url, base_price, duration, location, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -377,7 +379,7 @@ function seed() {
   // ============================================================
   console.log('Creating packages...');
 
-  const pkg1 = db.prepare(`
+  const pkg1 = await db.prepare(`
     INSERT INTO packages (name_en, name_cn, description_en, description_cn, image_url, base_price, includes, duration, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -390,7 +392,7 @@ function seed() {
     '3 days / 2 nights', 'active'
   );
 
-  const pkg2 = db.prepare(`
+  const pkg2 = await db.prepare(`
     INSERT INTO packages (name_en, name_cn, description_en, description_cn, image_url, base_price, includes, duration, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -403,7 +405,7 @@ function seed() {
     '3 days / 2 nights', 'active'
   );
 
-  const pkg3 = db.prepare(`
+  const pkg3 = await db.prepare(`
     INSERT INTO packages (name_en, name_cn, description_en, description_cn, image_url, base_price, includes, duration, status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -417,21 +419,21 @@ function seed() {
   );
 
   // Package items
-  const insertPackageItem = db.prepare('INSERT INTO package_items (package_id, item_type, item_id, quantity) VALUES (?, ?, ?, ?)');
+  const insertPackageItem = await db.prepare('INSERT INTO package_items (package_id, item_type, item_id, quantity) VALUES (?, ?, ?, ?)');
 
   // Ultimate Ski Getaway items
-  insertPackageItem.run(pkg1.lastInsertRowid, 'room_type', rt1.lastInsertRowid, 1); // Deluxe Mountain View
-  insertPackageItem.run(pkg1.lastInsertRowid, 'ticket', ticket1.lastInsertRowid, 2); // 2-day Ski Lift Pass
-  insertPackageItem.run(pkg1.lastInsertRowid, 'ticket', ticket5.lastInsertRowid, 1); // Spa
+  await insertPackageItem.run(pkg1.lastInsertRowid, 'room_type', rt1.lastInsertRowid, 1); // Deluxe Mountain View
+  await insertPackageItem.run(pkg1.lastInsertRowid, 'ticket', ticket1.lastInsertRowid, 2); // 2-day Ski Lift Pass
+  await insertPackageItem.run(pkg1.lastInsertRowid, 'ticket', ticket5.lastInsertRowid, 1); // Spa
 
   // Family Fun Bundle items
-  insertPackageItem.run(pkg2.lastInsertRowid, 'room_type', rt5.lastInsertRowid, 1); // Lodge Superior
-  insertPackageItem.run(pkg2.lastInsertRowid, 'ticket', ticket2.lastInsertRowid, 4); // Snow Tubing x4
-  insertPackageItem.run(pkg2.lastInsertRowid, 'ticket', ticket3.lastInsertRowid, 4); // Gondola x4
+  await insertPackageItem.run(pkg2.lastInsertRowid, 'room_type', rt5.lastInsertRowid, 1); // Lodge Superior
+  await insertPackageItem.run(pkg2.lastInsertRowid, 'ticket', ticket2.lastInsertRowid, 4); // Snow Tubing x4
+  await insertPackageItem.run(pkg2.lastInsertRowid, 'ticket', ticket3.lastInsertRowid, 4); // Gondola x4
 
   // Budget Ski & Stay items
-  insertPackageItem.run(pkg3.lastInsertRowid, 'room_type', rt8.lastInsertRowid, 1); // Valley Economy Double
-  insertPackageItem.run(pkg3.lastInsertRowid, 'ticket', ticket1.lastInsertRowid, 1); // 1-day Ski Lift Pass
+  await insertPackageItem.run(pkg3.lastInsertRowid, 'room_type', rt8.lastInsertRowid, 1); // Valley Economy Double
+  await insertPackageItem.run(pkg3.lastInsertRowid, 'ticket', ticket1.lastInsertRowid, 1); // 1-day Ski Lift Pass
 
   // ============================================================
   // INVENTORY (next 30 days)
@@ -461,45 +463,42 @@ function seed() {
   const packageQuantities = [30, 40, 50];
   const packagePrices = [750000, 480000, 199000];
 
-  const insertRoomInv = db.prepare('INSERT INTO room_inventory (room_type_id, date, total_rooms, booked_rooms, price) VALUES (?, ?, ?, ?, ?)');
-  const insertTicketInv = db.prepare('INSERT INTO ticket_inventory (ticket_id, date, total_quantity, booked_quantity, price) VALUES (?, ?, ?, ?, ?)');
-  const insertPackageInv = db.prepare('INSERT INTO package_inventory (package_id, date, total_quantity, booked_quantity, price) VALUES (?, ?, ?, ?, ?)');
+  const insertRoomInv = await db.prepare('INSERT INTO room_inventory (room_type_id, date, total_rooms, booked_rooms, price) VALUES (?, ?, ?, ?, ?)');
+  const insertTicketInv = await db.prepare('INSERT INTO ticket_inventory (ticket_id, date, total_quantity, booked_quantity, price) VALUES (?, ?, ?, ?, ?)');
+  const insertPackageInv = await db.prepare('INSERT INTO package_inventory (package_id, date, total_quantity, booked_quantity, price) VALUES (?, ?, ?, ?, ?)');
 
   // db.transaction() 래퍼는 콜백을 BEGIN..COMMIT 안에서 실행한다.
   // 내부 모든 INSERT 가 끝나야 단 한 번의 파일 직렬화가 일어난다.
-  const insertAllInventory = db.transaction(() => {
+  const insertAllInventory = db.transaction(async () => {
     for (let day = 0; day < 30; day++) {
       const dateStr = getDateString(day);
-      // Date#getDay(): 0 = Sunday, 6 = Saturday.
       const isWeekend = [0, 6].includes(new Date(dateStr).getDay());
-      // 주말 가격 +30%. 운영에서는 관리자 콘솔의 bulk inventory 업데이트로
-      // 세밀하게 조정할 수 있다.
       const multiplier = isWeekend ? 1.3 : 1.0;
 
       // Room inventory
       for (let i = 0; i < roomTypeIds.length; i++) {
         const price = Math.round(roomPrices[i] * multiplier);
         const preBooked = isWeekend ? Math.floor(roomCounts[i] * 0.3) : Math.floor(roomCounts[i] * 0.1);
-        insertRoomInv.run(roomTypeIds[i], dateStr, roomCounts[i], preBooked, price);
+        await insertRoomInv.run(roomTypeIds[i], dateStr, roomCounts[i], preBooked, price);
       }
 
       // Ticket inventory
       for (let i = 0; i < ticketIds.length; i++) {
         const price = Math.round(ticketPrices[i] * multiplier);
         const preBooked = isWeekend ? Math.floor(ticketQuantities[i] * 0.4) : Math.floor(ticketQuantities[i] * 0.1);
-        insertTicketInv.run(ticketIds[i], dateStr, ticketQuantities[i], preBooked, price);
+        await insertTicketInv.run(ticketIds[i], dateStr, ticketQuantities[i], preBooked, price);
       }
 
       // Package inventory
       for (let i = 0; i < packageIds.length; i++) {
         const price = Math.round(packagePrices[i] * multiplier);
         const preBooked = isWeekend ? Math.floor(packageQuantities[i] * 0.2) : Math.floor(packageQuantities[i] * 0.05);
-        insertPackageInv.run(packageIds[i], dateStr, packageQuantities[i], preBooked, price);
+        await insertPackageInv.run(packageIds[i], dateStr, packageQuantities[i], preBooked, price);
       }
     }
   });
 
-  insertAllInventory();
+  await insertAllInventory();
 
   // ============================================================
   // SAMPLE BOOKINGS
@@ -513,7 +512,7 @@ function seed() {
   const bn1 = generateBookingNumber();
   const checkIn1 = getDateString(5);
   const checkIn1End = getDateString(7);
-  const booking1 = db.prepare(`
+  const booking1 = await db.prepare(`
     INSERT INTO bookings (booking_number, user_id, guest_name, guest_email, guest_phone, product_type, product_id, room_type_id, check_in, check_out, guests, quantity, nights, total_price, status, payment_status, special_requests)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -524,12 +523,12 @@ function seed() {
     'confirmed', 'paid', 'Late check-in around 9 PM please'
   );
 
-  db.prepare("INSERT INTO payments (booking_id, amount, currency, method, stripe_payment_id, status) VALUES (?, ?, 'KRW', 'stripe', ?, 'paid')").run(
+  await db.prepare("INSERT INTO payments (booking_id, amount, currency, method, stripe_payment_id, status) VALUES (?, ?, 'KRW', 'stripe', ?, 'paid')").run(
     booking1.lastInsertRowid, 560000, 'pi_simulated_001'
   );
 
   const vc1 = generateVoucherCode();
-  db.prepare("INSERT INTO vouchers (booking_id, code, qr_data, status) VALUES (?, ?, ?, 'active')").run(
+  await db.prepare("INSERT INTO vouchers (booking_id, code, qr_data, status) VALUES (?, ?, ?, 'active')").run(
     booking1.lastInsertRowid, vc1,
     JSON.stringify({ booking_number: bn1, voucher_code: vc1, product_type: 'hotel', guest_name: 'Zhang Wei', total_price: 560000 })
   );
@@ -538,7 +537,7 @@ function seed() {
   // (user_id NULL). guest_email 은 Tanaka Yuki 의 것.
   const bn2 = generateBookingNumber();
   const visitDate2 = getDateString(10);
-  const booking2 = db.prepare(`
+  const booking2 = await db.prepare(`
     INSERT INTO bookings (booking_number, user_id, guest_name, guest_email, guest_phone, product_type, product_id, visit_date, guests, quantity, nights, total_price, status, payment_status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -549,12 +548,12 @@ function seed() {
     'pending', 'unpaid'
   );
 
-  db.prepare("INSERT INTO payments (booking_id, amount, currency, method, status) VALUES (?, ?, 'KRW', 'stripe', 'pending')").run(
+  await db.prepare("INSERT INTO payments (booking_id, amount, currency, method, status) VALUES (?, ?, 'KRW', 'stripe', 'pending')").run(
     booking2.lastInsertRowid, 158000
   );
 
   const vc2 = generateVoucherCode();
-  db.prepare("INSERT INTO vouchers (booking_id, code, qr_data, status) VALUES (?, ?, ?, 'active')").run(
+  await db.prepare("INSERT INTO vouchers (booking_id, code, qr_data, status) VALUES (?, ?, ?, 'active')").run(
     booking2.lastInsertRowid, vc2,
     JSON.stringify({ booking_number: bn2, voucher_code: vc2, product_type: 'ticket', guest_name: 'Tanaka Yuki', total_price: 158000 })
   );
@@ -563,7 +562,7 @@ function seed() {
   // cancelled 상태. 관리자 콘솔의 환불 UI 테스트에 쓰인다.
   const bn3 = generateBookingNumber();
   const visitDate3 = getDateString(3);
-  const booking3 = db.prepare(`
+  const booking3 = await db.prepare(`
     INSERT INTO bookings (booking_number, user_id, guest_name, guest_email, guest_phone, product_type, product_id, visit_date, guests, quantity, nights, total_price, status, payment_status)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
@@ -574,12 +573,12 @@ function seed() {
     'cancelled', 'refunded'
   );
 
-  db.prepare("INSERT INTO payments (booking_id, amount, currency, method, stripe_payment_id, status, refund_amount) VALUES (?, ?, 'KRW', 'stripe', ?, 'refunded', ?)").run(
+  await db.prepare("INSERT INTO payments (booking_id, amount, currency, method, stripe_payment_id, status, refund_amount) VALUES (?, ?, 'KRW', 'stripe', ?, 'refunded', ?)").run(
     booking3.lastInsertRowid, 199000, 'pi_simulated_003', 199000
   );
 
   const vc3 = generateVoucherCode();
-  db.prepare("INSERT INTO vouchers (booking_id, code, qr_data, status) VALUES (?, ?, ?, 'cancelled')").run(
+  await db.prepare("INSERT INTO vouchers (booking_id, code, qr_data, status) VALUES (?, ?, ?, 'cancelled')").run(
     booking3.lastInsertRowid, vc3,
     JSON.stringify({ booking_number: bn3, voucher_code: vc3, product_type: 'package', guest_name: 'Zhang Wei', total_price: 199000 })
   );
@@ -590,7 +589,7 @@ function seed() {
   // 4개 카테고리별 샘플 콘텐츠를 생성한다.
   // 실제 운영에서는 어드민이 이미지 업로드 + 리치 텍스트 에디터로 관리.
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO showcases (
       title_en, title_cn, summary_en, summary_cn,
       content_en, content_cn, thumbnail_url, images,
@@ -609,7 +608,7 @@ function seed() {
     'activity', 0, 'published'
   );
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO showcases (
       title_en, title_cn, summary_en, summary_cn,
       content_en, content_cn, thumbnail_url, images,
@@ -628,7 +627,7 @@ function seed() {
     'activity', 1, 'published'
   );
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO showcases (
       title_en, title_cn, summary_en, summary_cn,
       content_en, content_cn, thumbnail_url, images,
@@ -647,7 +646,7 @@ function seed() {
     'facility', 2, 'published'
   );
 
-  db.prepare(`
+  await db.prepare(`
     INSERT INTO showcases (
       title_en, title_cn, summary_en, summary_cn,
       content_en, content_cn, thumbnail_url, images,
@@ -686,7 +685,7 @@ function seed() {
  */
 async function main() {
   await initDb();
-  seed();
+  await seed();
 }
 
 main().catch(err => {

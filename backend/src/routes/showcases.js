@@ -21,7 +21,7 @@ const { getDb } = require('../config/database');
  * 응답: { showcases: [...] }
  * 정렬: sort_order ASC, created_at DESC
  */
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const db = getDb();
     const { category } = req.query;
@@ -38,7 +38,7 @@ router.get('/', (req, res) => {
 
     sql += ' ORDER BY sort_order ASC, created_at DESC';
 
-    const showcases = db.prepare(sql).all(...params);
+    const showcases = await db.prepare(sql).all(...params);
     res.json({ showcases });
   } catch (err) {
     console.error('Error fetching showcases:', err);
@@ -52,10 +52,10 @@ router.get('/', (req, res) => {
  * published 상태만 조회 가능. 없으면 404.
  * images 는 JSON 문자열이므로 파싱해서 배열로 내보낸다.
  */
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
     const db = getDb();
-    const showcase = db.prepare(
+    const showcase = await db.prepare(
       `SELECT * FROM showcases WHERE id = ? AND status = 'published'`
     ).get(req.params.id);
 
