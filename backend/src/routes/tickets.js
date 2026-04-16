@@ -22,7 +22,7 @@ const router = express.Router();
  * Query: { category?, search? }
  * 응답: 200 { tickets: [...] } | 500 내부 에러
  */
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const db = getDb();
     const { category, search } = req.query;
@@ -43,7 +43,7 @@ router.get('/', (req, res) => {
 
     query += ' ORDER BY is_featured DESC, sort_order ASC, id DESC';
 
-    const tickets = db.prepare(query).all(...params);
+    const tickets = await db.prepare(query).all(...params);
 
     res.json({ tickets });
   } catch (err) {
@@ -58,10 +58,10 @@ router.get('/', (req, res) => {
  * tickets.images / tickets.amenities 같은 JSON 컬럼은 이 파일에서는
  * 파싱하지 않는다 — 프런트가 필요 시 직접 파싱.
  */
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
     const db = getDb();
-    const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(req.params.id);
+    const ticket = await db.prepare('SELECT * FROM tickets WHERE id = ?').get(req.params.id);
 
     if (!ticket) {
       return res.status(404).json({ error: 'Ticket not found.' });
@@ -84,7 +84,7 @@ router.get('/:id', (req, res) => {
  *
  * 가격 우선순위: ticket_inventory.price (있으면) → tickets.base_price.
  */
-router.get('/:id/availability', (req, res) => {
+router.get('/:id/availability', async (req, res) => {
   try {
     const db = getDb();
     const { date } = req.query;
@@ -93,12 +93,12 @@ router.get('/:id/availability', (req, res) => {
       return res.status(400).json({ error: 'Date parameter is required (YYYY-MM-DD).' });
     }
 
-    const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(req.params.id);
+    const ticket = await db.prepare('SELECT * FROM tickets WHERE id = ?').get(req.params.id);
     if (!ticket) {
       return res.status(404).json({ error: 'Ticket not found.' });
     }
 
-    const inventory = db.prepare(`
+    const inventory = await db.prepare(`
       SELECT date, total_quantity, booked_quantity, price
       FROM ticket_inventory
       WHERE ticket_id = ? AND date = ?

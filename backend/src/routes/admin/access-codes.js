@@ -78,7 +78,7 @@ function generateAccessCode() {
  * 상품 이름은 여기서 붙이지 않는다 — 관리자 UI 가 이미 상품 리스트를
  * 메모리에 갖고 있어 클라이언트에서 매핑하는 편이 단순하다.
  */
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const db = getDb();
     const { user_id, product_type, product_id, status, search, page, limit } = req.query;
@@ -107,10 +107,10 @@ router.get('/', (req, res) => {
     if (search) { where += ' AND ac.code LIKE ?'; params.push('%' + search + '%'); }
 
     // COUNT 쿼리와 SELECT 쿼리가 같은 WHERE 를 공유한다.
-    const total = db.prepare(`SELECT COUNT(*) as count FROM access_codes ac ${where}`)
+    const total = await db.prepare(`SELECT COUNT(*) as count FROM access_codes ac ${where}`)
       .get(...params).count;
 
-    const rows = db.prepare(`
+    const rows = await db.prepare(`
       SELECT ac.*, u.email AS user_email, u.name AS user_name
       FROM access_codes ac
       LEFT JOIN users u ON u.id = ac.user_id
@@ -167,7 +167,7 @@ router.get('/', (req, res) => {
  *     UI 가 경고 배너를 띄울 수 있게 한다.
  *   - issued_by 에는 현재 관리자 id (req.user.id) 를 기록한다. 감사 용.
  */
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const db = getDb();
     const { user_id, product_type, product_id, max_uses, valid_until, note } = req.body || {};
@@ -191,7 +191,7 @@ router.post('/', (req, res) => {
       : 1;
 
     // 3) 대상 유저 존재 확인. users.id 가 없으면 FK 제약 대신 404 로 회신.
-    const user = db.prepare('SELECT id FROM users WHERE id = ?').get(user_id);
+    const user = await db.prepare('SELECT id FROM users WHERE id = ?').get(user_id);
     if (!user) {
       return res.status(404).json({ error: 'Target user not found.' });
     }
@@ -211,7 +211,7 @@ router.post('/', (req, res) => {
     const code = generateAccessCode();
 
     // 6) INSERT. issued_by 는 현재 로그인한 관리자 id.
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO access_codes
         (code, user_id, product_type, product_id, max_uses, current_uses,
          valid_until, note, status, issued_by)
@@ -228,7 +228,7 @@ router.post('/', (req, res) => {
     );
 
     // 7) 생성된 row 를 다시 읽어서 반환 (created_at 등 서버 생성 컬럼 포함).
-    const created = db.prepare('SELECT * FROM access_codes WHERE id = ?')
+    const created = await db.prepare('SELECT * FROM access_codes WHERE id = ?')
       .get(result.lastInsertRowid);
 
     res.status(201).json({
@@ -267,14 +267,14 @@ router.post('/', (req, res) => {
  * 코드를 썼다가 취소했다" 를 한눈에 볼 수 있도록. 다만 current_uses 에는
  * 반영되지 않는다(cancel 경로에서 롤백됨).
  */
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
     const db = getDb();
 
     // 코드 본문 + 대상/발급자 email 을 JOIN.
     // issued_by 가 NULL 인 경우(관리자 계정 삭제 등)도 안전하게 처리되도록
     // LEFT JOIN 두 번.
-    const row = db.prepare(`
+    const row = await db.prepare(`
       SELECT ac.*,
              u.email  AS user_email,
              u.name   AS user_name,
@@ -291,7 +291,7 @@ router.get('/:id', (req, res) => {
 
     // 이 코드로 만들어진 예약 목록. created_at 최신 순.
     // NOTE: cancelled 예약도 역사 추적을 위해 함께 보여 준다.
-    const redemptions = db.prepare(`
+    const redemptions = await db.prepare(`
       SELECT id AS booking_id, booking_number, status, created_at,
              check_in, check_out, visit_date, total_price, quantity
       FROM bookings
@@ -331,10 +331,10 @@ const ADMIN_ASSIGNABLE_STATUSES = ['active', 'revoked'];
  *       400 max_uses < current_uses / 잘못된 status
  *       404 없는 id
  */
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
     const db = getDb();
-    const existing = db.prepare('SELECT * FROM access_codes WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM access_codes WHERE id = ?').get(req.params.id);
     if (!existing) {
       return res.status(404).json({ error: 'Access code not found.' });
     }
@@ -386,9 +386,9 @@ router.put('/:id', (req, res) => {
     }
 
     values.push(existing.id);
-    db.prepare(`UPDATE access_codes SET ${sets.join(', ')} WHERE id = ?`).run(...values);
+    await db.prepare(`UPDATE access_codes SET ${sets.join(', ')} WHERE id = ?`).run(...values);
 
-    const updated = db.prepare('SELECT * FROM access_codes WHERE id = ?').get(existing.id);
+    const updated = await db.prepare('SELECT * FROM access_codes WHERE id = ?').get(existing.id);
     res.json({ message: 'Access code updated.', access_code: updated });
   } catch (err) {
     console.error('Admin update access code error:', err);
@@ -406,16 +406,16 @@ router.put('/:id', (req, res) => {
  * 응답: 200 { message, access_code }
  *       404 없는 id
  */
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
     const db = getDb();
-    const existing = db.prepare('SELECT * FROM access_codes WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM access_codes WHERE id = ?').get(req.params.id);
     if (!existing) {
       return res.status(404).json({ error: 'Access code not found.' });
     }
 
-    db.prepare("UPDATE access_codes SET status = 'revoked' WHERE id = ?").run(existing.id);
-    const updated = db.prepare('SELECT * FROM access_codes WHERE id = ?').get(existing.id);
+    await db.prepare("UPDATE access_codes SET status = 'revoked' WHERE id = ?").run(existing.id);
+    const updated = await db.prepare('SELECT * FROM access_codes WHERE id = ?').get(existing.id);
 
     res.json({ message: 'Access code revoked.', access_code: updated });
   } catch (err) {

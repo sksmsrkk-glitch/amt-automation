@@ -24,7 +24,7 @@ const router = express.Router();
  * Query: { search? }
  * 응답: 200 { packages: [...] } — includes 는 JSON 파싱된 배열.
  */
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const db = getDb();
     const { search } = req.query;
@@ -40,7 +40,7 @@ router.get('/', (req, res) => {
 
     query += ' ORDER BY is_featured DESC, sort_order ASC, id DESC';
 
-    const packages = db.prepare(query).all(...params);
+    const packages = await db.prepare(query).all(...params);
 
     const result = packages.map(pkg => ({
       ...pkg,
@@ -71,10 +71,10 @@ router.get('/', (req, res) => {
  *   - 'ticket'    → tickets 에서 id/name/base_price/image_url
  * 알 수 없는 타입은 detail = null.
  */
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
     const db = getDb();
-    const pkg = db.prepare('SELECT * FROM packages WHERE id = ?').get(req.params.id);
+    const pkg = await db.prepare('SELECT * FROM packages WHERE id = ?').get(req.params.id);
 
     if (!pkg) {
       return res.status(404).json({ error: 'Package not found.' });
@@ -82,26 +82,26 @@ router.get('/:id', (req, res) => {
 
     pkg.includes = JSON.parse(pkg.includes || '[]');
 
-    const items = db.prepare('SELECT * FROM package_items WHERE package_id = ?').all(pkg.id);
+    const items = await db.prepare('SELECT * FROM package_items WHERE package_id = ?').all(pkg.id);
 
     // item_type 에 따라 참조하는 테이블이 다르므로 분기해 필요한 필드만
     // SELECT 한다. 이 선택적인 필드 목록은 프런트엔드 카드 UI 가 보여
     // 주는 최소 정보에 맞춰 둔 것이다.
-    const resolvedItems = items.map(item => {
+    const resolvedItems = await Promise.all(items.map(async (item) => {
       let detail = null;
       if (item.item_type === 'hotel') {
-        detail = db.prepare('SELECT id, name_en, name_cn, image_url FROM hotels WHERE id = ?').get(item.item_id);
+        detail = await db.prepare('SELECT id, name_en, name_cn, image_url FROM hotels WHERE id = ?').get(item.item_id);
       } else if (item.item_type === 'room_type') {
-        detail = db.prepare('SELECT id, name_en, name_cn, hotel_id, base_price, image_url FROM room_types WHERE id = ?').get(item.item_id);
+        detail = await db.prepare('SELECT id, name_en, name_cn, hotel_id, base_price, image_url FROM room_types WHERE id = ?').get(item.item_id);
       } else if (item.item_type === 'ticket') {
-        detail = db.prepare('SELECT id, name_en, name_cn, base_price, image_url FROM tickets WHERE id = ?').get(item.item_id);
+        detail = await db.prepare('SELECT id, name_en, name_cn, base_price, image_url FROM tickets WHERE id = ?').get(item.item_id);
       }
 
       return {
         ...item,
         detail
       };
-    });
+    }));
 
     res.json({ package: pkg, items: resolvedItems });
   } catch (err) {
@@ -119,7 +119,7 @@ router.get('/:id', (req, res) => {
  *
  * tickets.js 의 availability 와 거의 동일하지만 package_inventory 를 조회.
  */
-router.get('/:id/availability', (req, res) => {
+router.get('/:id/availability', async (req, res) => {
   try {
     const db = getDb();
     const { date } = req.query;
@@ -128,12 +128,12 @@ router.get('/:id/availability', (req, res) => {
       return res.status(400).json({ error: 'Date parameter is required (YYYY-MM-DD).' });
     }
 
-    const pkg = db.prepare('SELECT * FROM packages WHERE id = ?').get(req.params.id);
+    const pkg = await db.prepare('SELECT * FROM packages WHERE id = ?').get(req.params.id);
     if (!pkg) {
       return res.status(404).json({ error: 'Package not found.' });
     }
 
-    const inventory = db.prepare(`
+    const inventory = await db.prepare(`
       SELECT date, total_quantity, booked_quantity, price
       FROM package_inventory
       WHERE package_id = ? AND date = ?

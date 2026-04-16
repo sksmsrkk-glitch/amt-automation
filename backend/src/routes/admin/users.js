@@ -33,27 +33,27 @@ router.use(authenticate, requireAdmin);
  *
  * top_bookers 는 예약 건수 상위 10명 — 고객 세그먼트 분석용.
  */
-router.get('/stats', (req, res) => {
+router.get('/stats', async (req, res) => {
   try {
     const db = getDb();
 
-    const totalUsers = db.prepare('SELECT COUNT(*) as count FROM users').get().count;
-    const customerCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'customer'").get().count;
-    const adminCount = db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'admin'").get().count;
+    const totalUsers = await db.prepare('SELECT COUNT(*) as count FROM users').get().count;
+    const customerCount = await db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'customer'").get().count;
+    const adminCount = await db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'admin'").get().count;
 
     const today = new Date().toISOString().split('T')[0];
-    const newUsersToday = db.prepare("SELECT COUNT(*) as count FROM users WHERE DATE(created_at) = ?").get(today).count;
+    const newUsersToday = await db.prepare("SELECT COUNT(*) as count FROM users WHERE DATE(created_at) = ?").get(today).count;
 
-    const nationalityBreakdown = db.prepare(`
+    const nationalityBreakdown = await db.prepare(`
       SELECT nationality, COUNT(*) as count FROM users WHERE nationality IS NOT NULL GROUP BY nationality ORDER BY count DESC
     `).all();
 
-    const languageBreakdown = db.prepare(`
+    const languageBreakdown = await db.prepare(`
       SELECT language, COUNT(*) as count FROM users GROUP BY language ORDER BY count DESC
     `).all();
 
     // Users with most bookings
-    const topBookers = db.prepare(`
+    const topBookers = await db.prepare(`
       SELECT u.id, u.name, u.email, COUNT(b.id) as booking_count, COALESCE(SUM(b.total_price), 0) as total_spent
       FROM users u
       LEFT JOIN bookings b ON u.id = b.user_id
@@ -88,7 +88,7 @@ router.get('/stats', (req, res) => {
  * 응답: { users: [...], pagination: {...} }
  * SELECT 에서 password 를 제외한 컬럼만 명시한다 — 누설 방지.
  */
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const db = getDb();
     const { search, role, page, limit } = req.query;
@@ -111,9 +111,9 @@ router.get('/', (req, res) => {
       params.push(role);
     }
 
-    const total = db.prepare(`SELECT COUNT(*) as count FROM users ${whereClause}`).get(...params).count;
+    const total = await db.prepare(`SELECT COUNT(*) as count FROM users ${whereClause}`).get(...params).count;
 
-    const users = db.prepare(`
+    const users = await db.prepare(`
       SELECT id, email, name, phone, nationality, role, language, created_at, updated_at
       FROM users ${whereClause}
       ORDER BY created_at DESC
@@ -148,18 +148,18 @@ router.get('/', (req, res) => {
  *     }
  *   }
  */
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
     const db = getDb();
-    const user = db.prepare('SELECT id, email, name, phone, nationality, role, language, created_at, updated_at FROM users WHERE id = ?').get(req.params.id);
+    const user = await db.prepare('SELECT id, email, name, phone, nationality, role, language, created_at, updated_at FROM users WHERE id = ?').get(req.params.id);
 
     if (!user) {
       return res.status(404).json({ error: 'User not found.' });
     }
 
-    const bookings = db.prepare('SELECT * FROM bookings WHERE user_id = ? ORDER BY created_at DESC').all(user.id);
+    const bookings = await db.prepare('SELECT * FROM bookings WHERE user_id = ? ORDER BY created_at DESC').all(user.id);
 
-    const bookingStats = db.prepare(`
+    const bookingStats = await db.prepare(`
       SELECT
         COUNT(*) as total_bookings,
         COALESCE(SUM(total_price), 0) as total_spent,
@@ -185,10 +185,10 @@ router.get('/:id', (req, res) => {
  * role 은 이 엔드포인트에서만 바꿀 수 있는 유일한 경로다 (일반 고객 앱의
  * PUT /auth/me 에는 role 필드가 빠져 있다).
  */
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
     const db = getDb();
-    const user = db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
+    const user = await db.prepare('SELECT * FROM users WHERE id = ?').get(req.params.id);
 
     if (!user) {
       return res.status(404).json({ error: 'User not found.' });
@@ -212,9 +212,9 @@ router.put('/:id', (req, res) => {
     updates.push("updated_at = datetime('now')");
     values.push(req.params.id);
 
-    db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+    await db.prepare(`UPDATE users SET ${updates.join(', ')} WHERE id = ?`).run(...values);
 
-    const updated = db.prepare('SELECT id, email, name, phone, nationality, role, language, created_at, updated_at FROM users WHERE id = ?').get(req.params.id);
+    const updated = await db.prepare('SELECT id, email, name, phone, nationality, role, language, created_at, updated_at FROM users WHERE id = ?').get(req.params.id);
 
     res.json({ message: 'User updated.', user: updated });
   } catch (err) {
