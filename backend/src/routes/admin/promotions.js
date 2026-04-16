@@ -45,11 +45,11 @@ function parseBlackoutDates(promo) {
  * GET /active — 오늘 날짜가 start_date ~ end_date 범위에 들어가고 status=active
  * 인 프로모션을 반환한다. start/end 가 NULL 인 프로모션(무기한)도 포함.
  */
-router.get('/active', (req, res) => {
+router.get('/active', async (req, res) => {
   try {
     const db = getDb();
     const today = new Date().toISOString().split('T')[0];
-    const promotions = db.prepare(`
+    const promotions = await db.prepare(`
       SELECT * FROM promotions
       WHERE status = 'active'
         AND (start_date IS NULL OR start_date <= ?)
@@ -67,7 +67,7 @@ router.get('/active', (req, res) => {
  * GET / — 프로모션 목록.
  * Query: { status?, product_type? }  — 단순 일치 필터.
  */
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const db = getDb();
     const { status, product_type } = req.query;
@@ -86,7 +86,7 @@ router.get('/', (req, res) => {
 
     query += ' ORDER BY id DESC';
 
-    const promotions = db.prepare(query).all(...params).map(parseBlackoutDates);
+    const promotions = await db.prepare(query).all(...params).map(parseBlackoutDates);
     res.json({ promotions });
   } catch (err) {
     console.error('List promotions error:', err);
@@ -106,7 +106,7 @@ router.get('/', (req, res) => {
  * - blackout_dates 가 배열이면 stringify, 문자열이면 그대로 저장해
  *   이중 인코딩을 막는다.
  */
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const db = getDb();
     const {
@@ -129,7 +129,7 @@ router.post('/', (req, res) => {
       ? (typeof blackout_dates === 'string' ? blackout_dates : JSON.stringify(blackout_dates))
       : '[]';
 
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO promotions (name, discount_type, discount_value, product_type, product_id, start_date, end_date, min_quantity, max_uses, status, blackout_dates)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
@@ -146,7 +146,7 @@ router.post('/', (req, res) => {
       blackoutStr
     );
 
-    const promotion = parseBlackoutDates(db.prepare('SELECT * FROM promotions WHERE id = ?').get(result.lastInsertRowid));
+    const promotion = parseBlackoutDates(await db.prepare('SELECT * FROM promotions WHERE id = ?').get(result.lastInsertRowid));
     res.status(201).json({ message: 'Promotion created.', promotion });
   } catch (err) {
     console.error('Create promotion error:', err);
@@ -160,10 +160,10 @@ router.post('/', (req, res) => {
  * 같은 동적 UPDATE 빌더 패턴을 사용해 바디에 들어온 필드만 SET.
  * discount_type 이 들어오면 'fixed'/'percentage' 유효성 검증을 추가로 한다.
  */
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
     const db = getDb();
-    const promotion = db.prepare('SELECT * FROM promotions WHERE id = ?').get(req.params.id);
+    const promotion = await db.prepare('SELECT * FROM promotions WHERE id = ?').get(req.params.id);
     if (!promotion) {
       return res.status(404).json({ error: 'Promotion not found.' });
     }
@@ -203,9 +203,9 @@ router.put('/:id', (req, res) => {
     }
 
     values.push(req.params.id);
-    db.prepare(`UPDATE promotions SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+    await db.prepare(`UPDATE promotions SET ${updates.join(', ')} WHERE id = ?`).run(...values);
 
-    const updated = parseBlackoutDates(db.prepare('SELECT * FROM promotions WHERE id = ?').get(req.params.id));
+    const updated = parseBlackoutDates(await db.prepare('SELECT * FROM promotions WHERE id = ?').get(req.params.id));
     res.json({ message: 'Promotion updated.', promotion: updated });
   } catch (err) {
     console.error('Update promotion error:', err);
@@ -217,15 +217,15 @@ router.put('/:id', (req, res) => {
  * DELETE /:id — soft delete. 레코드를 실제로 지우지 않고
  * status = 'inactive' 로 표기한다 (과거 사용 내역 추적을 위해).
  */
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
     const db = getDb();
-    const promotion = db.prepare('SELECT * FROM promotions WHERE id = ?').get(req.params.id);
+    const promotion = await db.prepare('SELECT * FROM promotions WHERE id = ?').get(req.params.id);
     if (!promotion) {
       return res.status(404).json({ error: 'Promotion not found.' });
     }
 
-    db.prepare("UPDATE promotions SET status = 'inactive' WHERE id = ?").run(req.params.id);
+    await db.prepare("UPDATE promotions SET status = 'inactive' WHERE id = ?").run(req.params.id);
     res.json({ message: 'Promotion deleted.' });
   } catch (err) {
     console.error('Delete promotion error:', err);

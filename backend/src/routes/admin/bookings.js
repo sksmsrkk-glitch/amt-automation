@@ -51,25 +51,25 @@ router.use(authenticate, requireAdmin);
  *     product_breakdown: [{ product_type, count }]
  *   }
  */
-router.get('/stats', (req, res) => {
+router.get('/stats', async (req, res) => {
   try {
     const db = getDb();
 
-    const totalBookings = db.prepare('SELECT COUNT(*) as count FROM bookings').get().count;
-    const totalRevenue = db.prepare("SELECT COALESCE(SUM(total_price), 0) as total FROM bookings WHERE status != 'cancelled'").get().total;
+    const totalBookings = await db.prepare('SELECT COUNT(*) as count FROM bookings').get().count;
+    const totalRevenue = await db.prepare("SELECT COALESCE(SUM(total_price), 0) as total FROM bookings WHERE status != 'cancelled'").get().total;
 
     const today = new Date().toISOString().split('T')[0];
-    const todayBookings = db.prepare("SELECT COUNT(*) as count FROM bookings WHERE DATE(created_at) = ?").get(today).count;
+    const todayBookings = await db.prepare("SELECT COUNT(*) as count FROM bookings WHERE DATE(created_at) = ?").get(today).count;
 
-    const statusBreakdown = db.prepare(`
+    const statusBreakdown = await db.prepare(`
       SELECT status, COUNT(*) as count FROM bookings GROUP BY status
     `).all();
 
-    const paymentBreakdown = db.prepare(`
+    const paymentBreakdown = await db.prepare(`
       SELECT payment_status, COUNT(*) as count FROM bookings GROUP BY payment_status
     `).all();
 
-    const productBreakdown = db.prepare(`
+    const productBreakdown = await db.prepare(`
       SELECT product_type, COUNT(*) as count FROM bookings GROUP BY product_type
     `).all();
 
@@ -102,7 +102,7 @@ router.get('/stats', (req, res) => {
  * 준수한다. 다른 필드에 쉼표/따옴표가 포함될 가능성이 있다면 동일한
  * quote 로직을 적용해야 한다.
  */
-router.get('/export', (req, res) => {
+router.get('/export', async (req, res) => {
   try {
     const db = getDb();
     const { status, payment_status, product_type, from_date, to_date } = req.query;
@@ -133,7 +133,7 @@ router.get('/export', (req, res) => {
 
     query += ' ORDER BY created_at DESC';
 
-    const bookings = db.prepare(query).all(...params);
+    const bookings = await db.prepare(query).all(...params);
 
     // CSV 헤더 — 프런트 다운로드 UI 의 컬럼 라벨과 순서 맞춰 둔다.
     const headers = [
@@ -196,7 +196,7 @@ router.get('/export', (req, res) => {
  *
  * 카운트 쿼리와 데이터 쿼리를 분리해 실행 — 같은 WHERE 절을 공유한다.
  */
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const db = getDb();
     const { status, payment_status, product_type, from_date, to_date, search, page, limit } = req.query;
@@ -235,10 +235,10 @@ router.get('/', (req, res) => {
     }
 
     const countQuery = `SELECT COUNT(*) as total FROM bookings b ${whereClause}`;
-    const total = db.prepare(countQuery).get(...params).total;
+    const total = await db.prepare(countQuery).get(...params).total;
 
     const dataQuery = `SELECT b.* FROM bookings b ${whereClause} ORDER BY b.created_at DESC LIMIT ? OFFSET ?`;
-    const bookings = db.prepare(dataQuery).all(...params, limitNum, offset);
+    const bookings = await db.prepare(dataQuery).all(...params, limitNum, offset);
 
     res.json({
       bookings,
@@ -262,38 +262,38 @@ router.get('/', (req, res) => {
  * 응답: 200 { booking, voucher, payment, product, room_type, user }
  *       404 없음 | 500 내부 에러
  */
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
     const db = getDb();
-    const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(req.params.id);
+    const booking = await db.prepare('SELECT * FROM bookings WHERE id = ?').get(req.params.id);
 
     if (!booking) {
       return res.status(404).json({ error: 'Booking not found.' });
     }
 
-    const voucher = db.prepare('SELECT * FROM vouchers WHERE booking_id = ?').get(booking.id);
-    const payment = db.prepare('SELECT * FROM payments WHERE booking_id = ?').get(booking.id);
+    const voucher = await db.prepare('SELECT * FROM vouchers WHERE booking_id = ?').get(booking.id);
+    const payment = await db.prepare('SELECT * FROM payments WHERE booking_id = ?').get(booking.id);
 
     let product = null;
     if (booking.product_type === 'hotel') {
-      product = db.prepare('SELECT * FROM hotels WHERE id = ?').get(booking.product_id);
+      product = await db.prepare('SELECT * FROM hotels WHERE id = ?').get(booking.product_id);
       if (product) product.amenities = JSON.parse(product.amenities || '[]');
     } else if (booking.product_type === 'ticket') {
-      product = db.prepare('SELECT * FROM tickets WHERE id = ?').get(booking.product_id);
+      product = await db.prepare('SELECT * FROM tickets WHERE id = ?').get(booking.product_id);
     } else if (booking.product_type === 'package') {
-      product = db.prepare('SELECT * FROM packages WHERE id = ?').get(booking.product_id);
+      product = await db.prepare('SELECT * FROM packages WHERE id = ?').get(booking.product_id);
       if (product) product.includes = JSON.parse(product.includes || '[]');
     }
 
     let roomType = null;
     if (booking.room_type_id) {
-      roomType = db.prepare('SELECT * FROM room_types WHERE id = ?').get(booking.room_type_id);
+      roomType = await db.prepare('SELECT * FROM room_types WHERE id = ?').get(booking.room_type_id);
       if (roomType) roomType.amenities = JSON.parse(roomType.amenities || '[]');
     }
 
     let user = null;
     if (booking.user_id) {
-      user = db.prepare('SELECT id, email, name, phone, nationality, language FROM users WHERE id = ?').get(booking.user_id);
+      user = await db.prepare('SELECT id, email, name, phone, nationality, language FROM users WHERE id = ?').get(booking.user_id);
     }
 
     res.json({ booking, voucher, payment, product, room_type: roomType, user });
@@ -323,7 +323,7 @@ router.get('/:id', (req, res) => {
  * 않아 방/티켓이 조용히 "팔린 채" 로 남는 버그가 있었다. 이 구현은
  * 그 버그의 해결판이다.
  */
-router.put('/:id/status', (req, res) => {
+router.put('/:id/status', async (req, res) => {
   try {
     const db = getDb();
     const { status } = req.body;
@@ -337,32 +337,32 @@ router.put('/:id/status', (req, res) => {
       });
     }
 
-    const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(req.params.id);
+    const booking = await db.prepare('SELECT * FROM bookings WHERE id = ?').get(req.params.id);
     if (!booking) {
       return res.status(404).json({ error: 'Booking not found.' });
     }
 
     // 모든 쓰기를 단일 트랜잭션으로 감싼다. 중간 실패 시 인벤토리만 풀리고
     // status/바우처는 그대로 남는 불일치 상태를 방지한다.
-    const updated = db.transaction(() => {
+    const updated = await db.transaction(async () => {
       // cancelled/refunded 로 전이할 때에만 인벤토리 복원. 이미 풀린
       // 상태였으면 복원을 건너뛰어 double-decrement 를 방지한다
       // (관리자가 취소 버튼을 두 번 누른 경우).
       const wasReleased = booking.status === 'cancelled' || booking.status === 'refunded';
       if (!wasReleased && (status === 'cancelled' || status === 'refunded')) {
-        restoreBookingInventory(db, booking);
+        await restoreBookingInventory(db, booking);
         // 이 예약이 access_code 로 만들어졌다면 해당 코드의 current_uses
         // 카운터도 1 되돌린다. booking.access_code_id 가 NULL 이면
         // no-op 이라 일반 예약에는 영향 없음. booking.js 의 고객 취소
         // 경로와 같은 헬퍼를 재사용해 로직이 두 곳으로 분기하지 않도록.
-        restoreAccessCodeUsage(db, booking);
-        db.prepare("UPDATE vouchers SET status = 'cancelled' WHERE booking_id = ?").run(booking.id);
+        await restoreAccessCodeUsage(db, booking);
+        await db.prepare("UPDATE vouchers SET status = 'cancelled' WHERE booking_id = ?").run(booking.id);
       }
 
-      db.prepare("UPDATE bookings SET status = ?, updated_at = datetime('now') WHERE id = ?")
+      await db.prepare("UPDATE bookings SET status = ?, updated_at = datetime('now') WHERE id = ?")
         .run(status, booking.id);
 
-      return db.prepare('SELECT * FROM bookings WHERE id = ?').get(booking.id);
+      return await db.prepare('SELECT * FROM bookings WHERE id = ?').get(booking.id);
     })();
 
     res.json({ message: 'Booking status updated.', booking: updated });
@@ -386,7 +386,7 @@ router.put('/:id/status', (req, res) => {
  * 이 구조 덕분에 bookings 와 payments 두 테이블이 paid/unpaid 로 서로
  * 엇갈려 보이는 상태가 생기지 않는다.
  */
-router.put('/:id/payment', (req, res) => {
+router.put('/:id/payment', async (req, res) => {
   try {
     const db = getDb();
     const { payment_status, payment_id } = req.body;
@@ -395,12 +395,12 @@ router.put('/:id/payment', (req, res) => {
       return res.status(400).json({ error: 'payment_status is required.' });
     }
 
-    const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(req.params.id);
+    const booking = await db.prepare('SELECT * FROM bookings WHERE id = ?').get(req.params.id);
     if (!booking) {
       return res.status(404).json({ error: 'Booking not found.' });
     }
 
-    const updated = db.transaction(() => {
+    const updated = await db.transaction(async () => {
       // bookings 테이블 측의 denormalized payment_status 를 갱신.
       // payment_id 는 결제 게이트웨이 참조 ID 를 저장하는 포인터.
       const updates = ["payment_status = ?", "updated_at = datetime('now')"];
@@ -412,7 +412,7 @@ router.put('/:id/payment', (req, res) => {
       }
 
       values.push(booking.id);
-      db.prepare(`UPDATE bookings SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+      await db.prepare(`UPDATE bookings SET ${updates.join(', ')} WHERE id = ?`).run(...values);
 
       // 동일 변경을 payments 쪽에도 반영 — 두 테이블이 동기화된다.
       const paymentUpdates = ['status = ?'];
@@ -424,17 +424,17 @@ router.put('/:id/payment', (req, res) => {
       }
 
       paymentValues.push(booking.id);
-      db.prepare(`UPDATE payments SET ${paymentUpdates.join(', ')} WHERE booking_id = ?`).run(...paymentValues);
+      await db.prepare(`UPDATE payments SET ${paymentUpdates.join(', ')} WHERE booking_id = ?`).run(...paymentValues);
 
       // 결제가 방금 'paid' 로 바뀌었고 예약이 아직 'pending' 이라면
       // 자동으로 confirmed 로 승격. cancelled/refunded 같은 상태는
       // 의도적으로 건드리지 않는다.
       if (payment_status === 'paid') {
-        db.prepare("UPDATE bookings SET status = 'confirmed', updated_at = datetime('now') WHERE id = ? AND status = 'pending'")
+        await db.prepare("UPDATE bookings SET status = 'confirmed', updated_at = datetime('now') WHERE id = ? AND status = 'pending'")
           .run(booking.id);
       }
 
-      return db.prepare('SELECT * FROM bookings WHERE id = ?').get(booking.id);
+      return await db.prepare('SELECT * FROM bookings WHERE id = ?').get(booking.id);
     })();
 
     res.json({ message: 'Payment status updated.', booking: updated });
@@ -460,17 +460,17 @@ router.put('/:id/payment', (req, res) => {
  * 인벤토리를 함께 풀지 않으면 리조트는 "환불했는데도 판매 가능한 수량
  * 이 줄어든 채" 남아 영원히 손해를 본다 — 반드시 복원한다.
  */
-router.post('/:id/refund', (req, res) => {
+router.post('/:id/refund', async (req, res) => {
   try {
     const db = getDb();
     const { refund_amount } = req.body;
 
-    const booking = db.prepare('SELECT * FROM bookings WHERE id = ?').get(req.params.id);
+    const booking = await db.prepare('SELECT * FROM bookings WHERE id = ?').get(req.params.id);
     if (!booking) {
       return res.status(404).json({ error: 'Booking not found.' });
     }
 
-    const payment = db.prepare('SELECT * FROM payments WHERE booking_id = ?').get(booking.id);
+    const payment = await db.prepare('SELECT * FROM payments WHERE booking_id = ?').get(booking.id);
     if (!payment) {
       return res.status(404).json({ error: 'Payment record not found.' });
     }
@@ -482,28 +482,28 @@ router.post('/:id/refund', (req, res) => {
       return res.status(400).json({ error: 'Invalid refund amount.' });
     }
 
-    const { updated, updatedPayment } = db.transaction(() => {
+    const { updated, updatedPayment } = await db.transaction(async () => {
       // 이전 cancel/refund 로 이미 풀린 상태였다면 double-decrement 방지.
       const wasReleased = booking.status === 'cancelled' || booking.status === 'refunded';
       if (!wasReleased) {
-        restoreBookingInventory(db, booking);
+        await restoreBookingInventory(db, booking);
         // restricted 상품 예약이었다면 access code current_uses 도 1 반환.
         // 일반(코드 없는) 예약이면 booking.access_code_id == NULL 이어서
         // no-op. 고객 취소 경로와 같은 헬퍼를 재사용한다.
-        restoreAccessCodeUsage(db, booking);
+        await restoreAccessCodeUsage(db, booking);
       }
 
-      db.prepare("UPDATE payments SET refund_amount = ?, status = 'refunded' WHERE booking_id = ?")
+      await db.prepare("UPDATE payments SET refund_amount = ?, status = 'refunded' WHERE booking_id = ?")
         .run(amount, booking.id);
 
-      db.prepare("UPDATE bookings SET status = 'refunded', payment_status = 'refunded', updated_at = datetime('now') WHERE id = ?")
+      await db.prepare("UPDATE bookings SET status = 'refunded', payment_status = 'refunded', updated_at = datetime('now') WHERE id = ?")
         .run(booking.id);
 
-      db.prepare("UPDATE vouchers SET status = 'cancelled' WHERE booking_id = ?").run(booking.id);
+      await db.prepare("UPDATE vouchers SET status = 'cancelled' WHERE booking_id = ?").run(booking.id);
 
       return {
-        updated: db.prepare('SELECT * FROM bookings WHERE id = ?').get(booking.id),
-        updatedPayment: db.prepare('SELECT * FROM payments WHERE booking_id = ?').get(booking.id)
+        updated: await db.prepare('SELECT * FROM bookings WHERE id = ?').get(booking.id),
+        updatedPayment: await db.prepare('SELECT * FROM payments WHERE booking_id = ?').get(booking.id)
       };
     })();
 

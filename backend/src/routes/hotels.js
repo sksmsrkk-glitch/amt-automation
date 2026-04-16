@@ -26,7 +26,7 @@ const router = express.Router();
  * 응답: 200 { hotels: [...] }  — amenities 는 JSON 파싱된 배열.
  * 실패: 500 내부 에러
  */
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const db = getDb();
     const { search } = req.query;
@@ -48,7 +48,7 @@ router.get('/', (req, res) => {
     // id 를 둔다.
     query += ' ORDER BY is_featured DESC, sort_order ASC, rating DESC, id ASC';
 
-    const hotels = db.prepare(query).all(...params);
+    const hotels = await db.prepare(query).all(...params);
 
     // amenities 컬럼은 DB 에 JSON 문자열로 저장됨. 응답 전에 배열로 디코딩.
     const result = hotels.map(hotel => ({
@@ -69,10 +69,10 @@ router.get('/', (req, res) => {
  * 응답: 200 { hotel, room_types } | 404 호텔 없음 | 500 내부 에러
  * amenities 는 호텔/방 양쪽 모두 JSON 파싱된 배열.
  */
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
     const db = getDb();
-    const hotel = db.prepare('SELECT * FROM hotels WHERE id = ?').get(req.params.id);
+    const hotel = await db.prepare('SELECT * FROM hotels WHERE id = ?').get(req.params.id);
 
     if (!hotel) {
       return res.status(404).json({ error: 'Hotel not found.' });
@@ -80,7 +80,7 @@ router.get('/:id', (req, res) => {
 
     hotel.amenities = JSON.parse(hotel.amenities || '[]');
 
-    const roomTypes = db.prepare('SELECT * FROM room_types WHERE hotel_id = ? AND status = ?').all(hotel.id, 'active');
+    const roomTypes = await db.prepare('SELECT * FROM room_types WHERE hotel_id = ? AND status = ?').all(hotel.id, 'active');
 
     const result = roomTypes.map(rt => ({
       ...rt,
@@ -118,7 +118,7 @@ router.get('/:id', (req, res) => {
  *   에서 해당 날짜 row 를 찾아 available / price 를 누적한다. 한 날짜라도
  *   inventory row 가 없으면 available = 0 으로 취급해 is_available=false.
  */
-router.get('/:id/availability', (req, res) => {
+router.get('/:id/availability', async (req, res) => {
   try {
     const db = getDb();
     const { check_in, check_out } = req.query;
@@ -127,15 +127,15 @@ router.get('/:id/availability', (req, res) => {
       return res.status(400).json({ error: 'check_in and check_out dates are required (YYYY-MM-DD).' });
     }
 
-    const hotel = db.prepare('SELECT * FROM hotels WHERE id = ?').get(req.params.id);
+    const hotel = await db.prepare('SELECT * FROM hotels WHERE id = ?').get(req.params.id);
     if (!hotel) {
       return res.status(404).json({ error: 'Hotel not found.' });
     }
 
-    const roomTypes = db.prepare('SELECT * FROM room_types WHERE hotel_id = ? AND status = ?').all(hotel.id, 'active');
+    const roomTypes = await db.prepare('SELECT * FROM room_types WHERE hotel_id = ? AND status = ?').all(hotel.id, 'active');
 
-    const availability = roomTypes.map(rt => {
-      const inventory = db.prepare(`
+    const availability = await Promise.all(roomTypes.map(async (rt) => {
+      const inventory = await db.prepare(`
         SELECT date, total_rooms, booked_rooms, price
         FROM room_inventory
         WHERE room_type_id = ? AND date >= ? AND date < ?
@@ -191,7 +191,7 @@ router.get('/:id/availability', (req, res) => {
         nights,
         is_available: minAvailable > 0
       };
-    });
+    }));
 
     res.json({
       hotel: {

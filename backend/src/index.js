@@ -144,12 +144,34 @@ async function start() {
   // Showcase 콘텐츠 CRUD — 리조트 소개 콘텐츠 관리.
   app.use('/api/admin/showcases', adminShowcaseRoutes);
 
-  // 5) 존재하지 않는 경로에 대한 404 핸들러.
-  //    반드시 모든 라우트 뒤에 와야 "매칭되지 않은" 요청이 여기로 흘러온다.
-  //    응답 형태는 프런트엔드의 fetch wrapper 가 읽는 `{ error }` 키에 맞춘다.
-  app.use((req, res) => {
-    res.status(404).json({ error: `Route ${req.method} ${req.path} not found.` });
-  });
+  // 5) 프론트엔드/어드민 정적 파일 서빙 (프로덕션 빌드).
+  //    빌드된 파일이 존재하면 Express 가 직접 서빙한다. SPA 이므로
+  //    존재하지 않는 경로는 index.html 로 fallback 해야 react-router 가
+  //    클라이언트 측에서 라우팅을 처리한다.
+  const adminDist = path.join(__dirname, '..', '..', 'admin', 'dist');
+  const frontendDist = path.join(__dirname, '..', '..', 'frontend', 'dist');
+
+  // /admin/* → admin SPA (어드민 빌드 파일)
+  if (fs.existsSync(adminDist)) {
+    app.use('/admin', express.static(adminDist));
+    app.get('/admin/*', (req, res) => {
+      res.sendFile(path.join(adminDist, 'index.html'));
+    });
+  }
+
+  // /* → frontend SPA (고객 사이트 빌드 파일) — 반드시 API 라우트 뒤에 위치
+  if (fs.existsSync(frontendDist)) {
+    app.use(express.static(frontendDist));
+    app.get('*', (req, res) => {
+      // /api/* 요청은 여기까지 안 옴 (위에서 이미 매칭됨)
+      res.sendFile(path.join(frontendDist, 'index.html'));
+    });
+  } else {
+    // 빌드 파일이 없으면 기존 404 핸들러
+    app.use((req, res) => {
+      res.status(404).json({ error: `Route ${req.method} ${req.path} not found.` });
+    });
+  }
 
   // 6) 전역 에러 핸들러.
   //    라우트 내부에서 next(err) 로 넘긴 에러, 또는 비동기 핸들러에서

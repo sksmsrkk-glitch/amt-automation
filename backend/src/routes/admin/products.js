@@ -72,7 +72,7 @@ const PRODUCT_TABLES = {
  *
  * 응답: 200 { message } | 400 유효성 | 500 내부 에러
  */
-router.put('/featured', (req, res) => {
+router.put('/featured', async (req, res) => {
   try {
     const db = getDb();
     const { product_type, product_id, is_featured, sort_order, is_restricted } = req.body;
@@ -105,7 +105,7 @@ router.put('/featured', (req, res) => {
     values.push(product_id);
     // `table` 은 PRODUCT_TABLES allow-list 에서 온 값이라 SQL 삽입이
     // 안전하다 — 사용자 입력 문자열이 직접 쿼리에 들어가지 않는다.
-    db.prepare(`UPDATE ${table} SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+    await db.prepare(`UPDATE ${table} SET ${updates.join(', ')} WHERE id = ?`).run(...values);
 
     res.json({ message: 'Product flags updated.' });
   } catch (err) {
@@ -125,10 +125,10 @@ router.put('/featured', (req, res) => {
  * GET / — 모든 호텔 목록 (inactive 포함).
  * amenities / images 는 JSON.parse 된 배열로 반환.
  */
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const db = getDb();
-    const hotels = db.prepare('SELECT * FROM hotels ORDER BY id DESC').all();
+    const hotels = await db.prepare('SELECT * FROM hotels ORDER BY id DESC').all();
     const result = hotels.map(h => ({
       ...h,
       amenities: JSON.parse(h.amenities || '[]'),
@@ -147,7 +147,7 @@ router.get('/', (req, res) => {
  * amenities, images 는 배열로 받아 JSON.stringify 후 저장.
  * is_featured 는 0/1 정수 컬럼이므로 boolean 을 캐스팅.
  */
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const db = getDb();
     const { name_en, name_cn, description_en, description_cn, address, image_url, rating, amenities, images, status, is_featured, sort_order } = req.body;
@@ -156,7 +156,7 @@ router.post('/', (req, res) => {
       return res.status(400).json({ error: 'name_en is required.' });
     }
 
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO hotels (name_en, name_cn, description_en, description_cn, address, image_url, rating, amenities, images, status, is_featured, sort_order)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
@@ -166,7 +166,7 @@ router.post('/', (req, res) => {
       is_featured ? 1 : 0, sort_order || 0
     );
 
-    const hotel = db.prepare('SELECT * FROM hotels WHERE id = ?').get(result.lastInsertRowid);
+    const hotel = await db.prepare('SELECT * FROM hotels WHERE id = ?').get(result.lastInsertRowid);
     hotel.amenities = JSON.parse(hotel.amenities || '[]');
     hotel.images = JSON.parse(hotel.images || '[]');
 
@@ -181,10 +181,10 @@ router.post('/', (req, res) => {
  * PUT /:id — 호텔 부분 수정. 동적 UPDATE 빌더 패턴 (req.body 에 들어온
  * 필드만 SET). amenities/images 는 배열 → JSON.stringify.
  */
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
     const db = getDb();
-    const hotel = db.prepare('SELECT * FROM hotels WHERE id = ?').get(req.params.id);
+    const hotel = await db.prepare('SELECT * FROM hotels WHERE id = ?').get(req.params.id);
     if (!hotel) {
       return res.status(404).json({ error: 'Hotel not found.' });
     }
@@ -216,9 +216,9 @@ router.put('/:id', (req, res) => {
     }
 
     values.push(req.params.id);
-    db.prepare(`UPDATE hotels SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+    await db.prepare(`UPDATE hotels SET ${updates.join(', ')} WHERE id = ?`).run(...values);
 
-    const updated = db.prepare('SELECT * FROM hotels WHERE id = ?').get(req.params.id);
+    const updated = await db.prepare('SELECT * FROM hotels WHERE id = ?').get(req.params.id);
     updated.amenities = JSON.parse(updated.amenities || '[]');
     updated.images = JSON.parse(updated.images || '[]');
 
@@ -234,15 +234,15 @@ router.put('/:id', (req, res) => {
  * 실제 레코드 삭제가 아니므로 FK 참조(room_types, bookings)는 그대로 남는다.
  * 공개 라우트는 status='active' 만 반환하므로 자동으로 숨겨진다.
  */
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
     const db = getDb();
-    const hotel = db.prepare('SELECT * FROM hotels WHERE id = ?').get(req.params.id);
+    const hotel = await db.prepare('SELECT * FROM hotels WHERE id = ?').get(req.params.id);
     if (!hotel) {
       return res.status(404).json({ error: 'Hotel not found.' });
     }
 
-    db.prepare("UPDATE hotels SET status = 'inactive' WHERE id = ?").run(req.params.id);
+    await db.prepare("UPDATE hotels SET status = 'inactive' WHERE id = ?").run(req.params.id);
     res.json({ message: 'Hotel deleted.' });
   } catch (err) {
     console.error('Admin delete hotel error:', err);
@@ -260,7 +260,7 @@ router.delete('/:id', (req, res) => {
  * 응답: room_types 에 LEFT JOIN 으로 hotel_name 을 붙여서 반환.
  * amenities / images 는 JSON 파싱된 배열.
  */
-router.get('/room-types', (req, res) => {
+router.get('/room-types', async (req, res) => {
   try {
     const db = getDb();
     const { hotel_id } = req.query;
@@ -275,7 +275,7 @@ router.get('/room-types', (req, res) => {
 
     query += ' ORDER BY rt.id DESC';
 
-    const roomTypes = db.prepare(query).all(...params);
+    const roomTypes = await db.prepare(query).all(...params);
     const result = roomTypes.map(rt => ({
       ...rt,
       amenities: JSON.parse(rt.amenities || '[]'),
@@ -293,7 +293,7 @@ router.get('/room-types', (req, res) => {
  * POST /room-types — 방 타입 생성.
  * 필수: hotel_id, name_en, base_price. hotel_id 존재 여부 확인 후 INSERT.
  */
-router.post('/room-types', (req, res) => {
+router.post('/room-types', async (req, res) => {
   try {
     const db = getDb();
     const { hotel_id, name_en, name_cn, description_en, description_cn, max_guests, bed_type, amenities, image_url, images, base_price, status } = req.body;
@@ -302,12 +302,12 @@ router.post('/room-types', (req, res) => {
       return res.status(400).json({ error: 'hotel_id, name_en, and base_price are required.' });
     }
 
-    const hotel = db.prepare('SELECT id FROM hotels WHERE id = ?').get(hotel_id);
+    const hotel = await db.prepare('SELECT id FROM hotels WHERE id = ?').get(hotel_id);
     if (!hotel) {
       return res.status(404).json({ error: 'Hotel not found.' });
     }
 
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO room_types (hotel_id, name_en, name_cn, description_en, description_cn, max_guests, bed_type, amenities, image_url, images, base_price, status)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
@@ -316,7 +316,7 @@ router.post('/room-types', (req, res) => {
       image_url || null, JSON.stringify(images || []), base_price, status || 'active'
     );
 
-    const roomType = db.prepare('SELECT * FROM room_types WHERE id = ?').get(result.lastInsertRowid);
+    const roomType = await db.prepare('SELECT * FROM room_types WHERE id = ?').get(result.lastInsertRowid);
     roomType.amenities = JSON.parse(roomType.amenities || '[]');
     roomType.images = JSON.parse(roomType.images || '[]');
 
@@ -331,10 +331,10 @@ router.post('/room-types', (req, res) => {
  * PUT /room-types/:id — 방 타입 부분 수정.
  * hotel_id 까지 변경 가능하다 (한 호텔의 방을 다른 호텔로 이관 등).
  */
-router.put('/room-types/:id', (req, res) => {
+router.put('/room-types/:id', async (req, res) => {
   try {
     const db = getDb();
-    const roomType = db.prepare('SELECT * FROM room_types WHERE id = ?').get(req.params.id);
+    const roomType = await db.prepare('SELECT * FROM room_types WHERE id = ?').get(req.params.id);
     if (!roomType) {
       return res.status(404).json({ error: 'Room type not found.' });
     }
@@ -362,9 +362,9 @@ router.put('/room-types/:id', (req, res) => {
     }
 
     values.push(req.params.id);
-    db.prepare(`UPDATE room_types SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+    await db.prepare(`UPDATE room_types SET ${updates.join(', ')} WHERE id = ?`).run(...values);
 
-    const updated = db.prepare('SELECT * FROM room_types WHERE id = ?').get(req.params.id);
+    const updated = await db.prepare('SELECT * FROM room_types WHERE id = ?').get(req.params.id);
     updated.amenities = JSON.parse(updated.amenities || '[]');
     updated.images = JSON.parse(updated.images || '[]');
 
@@ -378,15 +378,15 @@ router.put('/room-types/:id', (req, res) => {
 /**
  * DELETE /room-types/:id — 방 타입 soft delete.
  */
-router.delete('/room-types/:id', (req, res) => {
+router.delete('/room-types/:id', async (req, res) => {
   try {
     const db = getDb();
-    const roomType = db.prepare('SELECT * FROM room_types WHERE id = ?').get(req.params.id);
+    const roomType = await db.prepare('SELECT * FROM room_types WHERE id = ?').get(req.params.id);
     if (!roomType) {
       return res.status(404).json({ error: 'Room type not found.' });
     }
 
-    db.prepare("UPDATE room_types SET status = 'inactive' WHERE id = ?").run(req.params.id);
+    await db.prepare("UPDATE room_types SET status = 'inactive' WHERE id = ?").run(req.params.id);
     res.json({ message: 'Room type deleted.' });
   } catch (err) {
     console.error('Admin delete room type error:', err);
@@ -401,10 +401,10 @@ router.delete('/room-types/:id', (req, res) => {
 // 같은 티켓 전용 필드가 있다는 것뿐.
 
 /** GET /tickets — 모든 티켓 목록. */
-router.get('/tickets', (req, res) => {
+router.get('/tickets', async (req, res) => {
   try {
     const db = getDb();
-    const tickets = db.prepare('SELECT * FROM tickets ORDER BY id DESC').all();
+    const tickets = await db.prepare('SELECT * FROM tickets ORDER BY id DESC').all();
     res.json({ tickets });
   } catch (err) {
     console.error('Admin list tickets error:', err);
@@ -413,7 +413,7 @@ router.get('/tickets', (req, res) => {
 });
 
 /** POST /tickets — 티켓 생성. 필수: name_en, base_price. */
-router.post('/tickets', (req, res) => {
+router.post('/tickets', async (req, res) => {
   try {
     const db = getDb();
     const { name_en, name_cn, description_en, description_cn, category, image_url, images, base_price, duration, location, status, is_featured, sort_order } = req.body;
@@ -422,7 +422,7 @@ router.post('/tickets', (req, res) => {
       return res.status(400).json({ error: 'name_en and base_price are required.' });
     }
 
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO tickets (name_en, name_cn, description_en, description_cn, category, image_url, images, base_price, duration, location, status, is_featured, sort_order)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
@@ -432,7 +432,7 @@ router.post('/tickets', (req, res) => {
       is_featured ? 1 : 0, sort_order || 0
     );
 
-    const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(result.lastInsertRowid);
+    const ticket = await db.prepare('SELECT * FROM tickets WHERE id = ?').get(result.lastInsertRowid);
     ticket.images = JSON.parse(ticket.images || '[]');
     res.status(201).json({ message: 'Ticket created.', ticket });
   } catch (err) {
@@ -442,10 +442,10 @@ router.post('/tickets', (req, res) => {
 });
 
 /** PUT /tickets/:id — 티켓 부분 수정. */
-router.put('/tickets/:id', (req, res) => {
+router.put('/tickets/:id', async (req, res) => {
   try {
     const db = getDb();
-    const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(req.params.id);
+    const ticket = await db.prepare('SELECT * FROM tickets WHERE id = ?').get(req.params.id);
     if (!ticket) {
       return res.status(404).json({ error: 'Ticket not found.' });
     }
@@ -477,9 +477,9 @@ router.put('/tickets/:id', (req, res) => {
     }
 
     values.push(req.params.id);
-    db.prepare(`UPDATE tickets SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+    await db.prepare(`UPDATE tickets SET ${updates.join(', ')} WHERE id = ?`).run(...values);
 
-    const updated = db.prepare('SELECT * FROM tickets WHERE id = ?').get(req.params.id);
+    const updated = await db.prepare('SELECT * FROM tickets WHERE id = ?').get(req.params.id);
     updated.images = JSON.parse(updated.images || '[]');
     res.json({ message: 'Ticket updated.', ticket: updated });
   } catch (err) {
@@ -489,15 +489,15 @@ router.put('/tickets/:id', (req, res) => {
 });
 
 /** DELETE /tickets/:id — 티켓 soft delete. */
-router.delete('/tickets/:id', (req, res) => {
+router.delete('/tickets/:id', async (req, res) => {
   try {
     const db = getDb();
-    const ticket = db.prepare('SELECT * FROM tickets WHERE id = ?').get(req.params.id);
+    const ticket = await db.prepare('SELECT * FROM tickets WHERE id = ?').get(req.params.id);
     if (!ticket) {
       return res.status(404).json({ error: 'Ticket not found.' });
     }
 
-    db.prepare("UPDATE tickets SET status = 'inactive' WHERE id = ?").run(req.params.id);
+    await db.prepare("UPDATE tickets SET status = 'inactive' WHERE id = ?").run(req.params.id);
     res.json({ message: 'Ticket deleted.' });
   } catch (err) {
     console.error('Admin delete ticket error:', err);
@@ -514,10 +514,10 @@ router.delete('/tickets/:id', (req, res) => {
 // 없음).
 
 /** GET /packages — 모든 패키지 목록 (includes/images JSON 파싱). */
-router.get('/packages', (req, res) => {
+router.get('/packages', async (req, res) => {
   try {
     const db = getDb();
-    const packages = db.prepare('SELECT * FROM packages ORDER BY id DESC').all();
+    const packages = await db.prepare('SELECT * FROM packages ORDER BY id DESC').all();
     const result = packages.map(p => ({
       ...p,
       includes: JSON.parse(p.includes || '[]'),
@@ -539,7 +539,7 @@ router.get('/packages', (req, res) => {
  * INSERT 한다. item_type 은 seed 와 동일하게 'hotel' | 'room_type' |
  * 'ticket' 중 하나를 사용하는 것이 관례.
  */
-router.post('/packages', (req, res) => {
+router.post('/packages', async (req, res) => {
   try {
     const db = getDb();
     const { name_en, name_cn, description_en, description_cn, image_url, images, base_price, includes, duration, status, items, is_featured, sort_order } = req.body;
@@ -548,7 +548,7 @@ router.post('/packages', (req, res) => {
       return res.status(400).json({ error: 'name_en and base_price are required.' });
     }
 
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO packages (name_en, name_cn, description_en, description_cn, image_url, images, base_price, includes, duration, status, is_featured, sort_order)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
@@ -563,16 +563,16 @@ router.post('/packages', (req, res) => {
     // items 배열이 넘어왔으면 package_items 도 같이 INSERT. 같은 prepared
     // statement 를 재사용해 반복 SQL 파싱 비용을 피한다.
     if (items && Array.isArray(items)) {
-      const insertItem = db.prepare('INSERT INTO package_items (package_id, item_type, item_id, quantity) VALUES (?, ?, ?, ?)');
+      const insertItem = await db.prepare('INSERT INTO package_items (package_id, item_type, item_id, quantity) VALUES (?, ?, ?, ?)');
       for (const item of items) {
         insertItem.run(packageId, item.item_type, item.item_id, item.quantity || 1);
       }
     }
 
-    const pkg = db.prepare('SELECT * FROM packages WHERE id = ?').get(packageId);
+    const pkg = await db.prepare('SELECT * FROM packages WHERE id = ?').get(packageId);
     pkg.includes = JSON.parse(pkg.includes || '[]');
     pkg.images = JSON.parse(pkg.images || '[]');
-    const packageItems = db.prepare('SELECT * FROM package_items WHERE package_id = ?').all(packageId);
+    const packageItems = await db.prepare('SELECT * FROM package_items WHERE package_id = ?').all(packageId);
 
     res.status(201).json({ message: 'Package created.', package: pkg, items: packageItems });
   } catch (err) {
@@ -587,10 +587,10 @@ router.post('/packages', (req, res) => {
  * items 배열이 넘어오면 package_items 를 DELETE 한 뒤 다시 INSERT 한다
  * (전체 교체 의미론). items 를 생략하면 기존 아이템 구성은 그대로 유지.
  */
-router.put('/packages/:id', (req, res) => {
+router.put('/packages/:id', async (req, res) => {
   try {
     const db = getDb();
-    const pkg = db.prepare('SELECT * FROM packages WHERE id = ?').get(req.params.id);
+    const pkg = await db.prepare('SELECT * FROM packages WHERE id = ?').get(req.params.id);
     if (!pkg) {
       return res.status(404).json({ error: 'Package not found.' });
     }
@@ -617,23 +617,23 @@ router.put('/packages/:id', (req, res) => {
 
     if (updates.length > 0) {
       values.push(req.params.id);
-      db.prepare(`UPDATE packages SET ${updates.join(', ')} WHERE id = ?`).run(...values);
+      await db.prepare(`UPDATE packages SET ${updates.join(', ')} WHERE id = ?`).run(...values);
     }
 
     // items 가 있으면 DELETE-and-INSERT 로 아이템 구성을 전체 교체.
     // diff 계산 없이 단순히 다 지우고 다시 넣는 편이 버그가 적다.
     if (items && Array.isArray(items)) {
-      db.prepare('DELETE FROM package_items WHERE package_id = ?').run(req.params.id);
-      const insertItem = db.prepare('INSERT INTO package_items (package_id, item_type, item_id, quantity) VALUES (?, ?, ?, ?)');
+      await db.prepare('DELETE FROM package_items WHERE package_id = ?').run(req.params.id);
+      const insertItem = await db.prepare('INSERT INTO package_items (package_id, item_type, item_id, quantity) VALUES (?, ?, ?, ?)');
       for (const item of items) {
         insertItem.run(req.params.id, item.item_type, item.item_id, item.quantity || 1);
       }
     }
 
-    const updated = db.prepare('SELECT * FROM packages WHERE id = ?').get(req.params.id);
+    const updated = await db.prepare('SELECT * FROM packages WHERE id = ?').get(req.params.id);
     updated.includes = JSON.parse(updated.includes || '[]');
     updated.images = JSON.parse(updated.images || '[]');
-    const packageItems = db.prepare('SELECT * FROM package_items WHERE package_id = ?').all(req.params.id);
+    const packageItems = await db.prepare('SELECT * FROM package_items WHERE package_id = ?').all(req.params.id);
 
     res.json({ message: 'Package updated.', package: updated, items: packageItems });
   } catch (err) {
@@ -643,15 +643,15 @@ router.put('/packages/:id', (req, res) => {
 });
 
 /** DELETE /packages/:id — 패키지 soft delete. package_items 는 그대로 둔다. */
-router.delete('/packages/:id', (req, res) => {
+router.delete('/packages/:id', async (req, res) => {
   try {
     const db = getDb();
-    const pkg = db.prepare('SELECT * FROM packages WHERE id = ?').get(req.params.id);
+    const pkg = await db.prepare('SELECT * FROM packages WHERE id = ?').get(req.params.id);
     if (!pkg) {
       return res.status(404).json({ error: 'Package not found.' });
     }
 
-    db.prepare("UPDATE packages SET status = 'inactive' WHERE id = ?").run(req.params.id);
+    await db.prepare("UPDATE packages SET status = 'inactive' WHERE id = ?").run(req.params.id);
     res.json({ message: 'Package deleted.' });
   } catch (err) {
     console.error('Admin delete package error:', err);
@@ -678,7 +678,7 @@ router.delete('/packages/:id', (req, res) => {
 //        total_quantity / price 를 null 로 넘기면 기존 값을 그대로 유지.
 
 /** GET /room-inventory/:room_type_id — 특정 방 타입의 재고 기간 조회. */
-router.get('/room-inventory/:room_type_id', (req, res) => {
+router.get('/room-inventory/:room_type_id', async (req, res) => {
   try {
     const db = getDb();
     const { from_date, to_date } = req.query;
@@ -687,7 +687,7 @@ router.get('/room-inventory/:room_type_id', (req, res) => {
     if (from_date) { query += ' AND date >= ?'; params.push(from_date); }
     if (to_date) { query += ' AND date <= ?'; params.push(to_date); }
     query += ' ORDER BY date ASC';
-    const inventory = db.prepare(query).all(...params);
+    const inventory = await db.prepare(query).all(...params);
     res.json({ inventory });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
@@ -695,7 +695,7 @@ router.get('/room-inventory/:room_type_id', (req, res) => {
 });
 
 /** GET /ticket-inventory/:ticket_id — 티켓 재고 기간 조회. */
-router.get('/ticket-inventory/:ticket_id', (req, res) => {
+router.get('/ticket-inventory/:ticket_id', async (req, res) => {
   try {
     const db = getDb();
     const { from_date, to_date } = req.query;
@@ -704,7 +704,7 @@ router.get('/ticket-inventory/:ticket_id', (req, res) => {
     if (from_date) { query += ' AND date >= ?'; params.push(from_date); }
     if (to_date) { query += ' AND date <= ?'; params.push(to_date); }
     query += ' ORDER BY date ASC';
-    const inventory = db.prepare(query).all(...params);
+    const inventory = await db.prepare(query).all(...params);
     res.json({ inventory });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
@@ -712,7 +712,7 @@ router.get('/ticket-inventory/:ticket_id', (req, res) => {
 });
 
 /** GET /package-inventory/:package_id — 패키지 재고 기간 조회. */
-router.get('/package-inventory/:package_id', (req, res) => {
+router.get('/package-inventory/:package_id', async (req, res) => {
   try {
     const db = getDb();
     const { from_date, to_date } = req.query;
@@ -721,7 +721,7 @@ router.get('/package-inventory/:package_id', (req, res) => {
     if (from_date) { query += ' AND date >= ?'; params.push(from_date); }
     if (to_date) { query += ' AND date <= ?'; params.push(to_date); }
     query += ' ORDER BY date ASC';
-    const inventory = db.prepare(query).all(...params);
+    const inventory = await db.prepare(query).all(...params);
     res.json({ inventory });
   } catch (err) {
     res.status(500).json({ error: 'Internal server error.' });
@@ -736,7 +736,7 @@ router.get('/package-inventory/:package_id', (req, res) => {
  * `ON CONFLICT(room_type_id, date) DO UPDATE` 로 기존 row 를 덮어쓴다.
  * 전체 items 를 단일 트랜잭션으로 실행해 saveDb 호출을 한 번으로 줄인다.
  */
-router.put('/room-inventory', (req, res) => {
+router.put('/room-inventory', async (req, res) => {
   try {
     const db = getDb();
     const { room_type_id, items } = req.body;
@@ -745,12 +745,12 @@ router.put('/room-inventory', (req, res) => {
       return res.status(400).json({ error: 'room_type_id and items array are required.' });
     }
 
-    const roomType = db.prepare('SELECT id FROM room_types WHERE id = ?').get(room_type_id);
+    const roomType = await db.prepare('SELECT id FROM room_types WHERE id = ?').get(room_type_id);
     if (!roomType) {
       return res.status(404).json({ error: 'Room type not found.' });
     }
 
-    const upsert = db.prepare(`
+    const upsert = await db.prepare(`
       INSERT INTO room_inventory (room_type_id, date, total_rooms, price)
       VALUES (?, ?, ?, ?)
       ON CONFLICT(room_type_id, date) DO UPDATE SET
@@ -758,13 +758,13 @@ router.put('/room-inventory', (req, res) => {
         price = excluded.price
     `);
 
-    const transaction = db.transaction((entries) => {
+    const transaction = db.transaction(async (entries) => {
       for (const entry of entries) {
         upsert.run(room_type_id, entry.date, entry.total, entry.price);
       }
     });
 
-    transaction(items);
+    await transaction(items);
 
     res.json({ message: `Room inventory updated for ${items.length} dates.` });
   } catch (err) {
@@ -774,7 +774,7 @@ router.put('/room-inventory', (req, res) => {
 });
 
 /** PUT /ticket-inventory — 동일 패턴을 ticket_inventory 에 적용. */
-router.put('/ticket-inventory', (req, res) => {
+router.put('/ticket-inventory', async (req, res) => {
   try {
     const db = getDb();
     const { ticket_id, items } = req.body;
@@ -783,12 +783,12 @@ router.put('/ticket-inventory', (req, res) => {
       return res.status(400).json({ error: 'ticket_id and items array are required.' });
     }
 
-    const ticket = db.prepare('SELECT id FROM tickets WHERE id = ?').get(ticket_id);
+    const ticket = await db.prepare('SELECT id FROM tickets WHERE id = ?').get(ticket_id);
     if (!ticket) {
       return res.status(404).json({ error: 'Ticket not found.' });
     }
 
-    const upsert = db.prepare(`
+    const upsert = await db.prepare(`
       INSERT INTO ticket_inventory (ticket_id, date, total_quantity, price)
       VALUES (?, ?, ?, ?)
       ON CONFLICT(ticket_id, date) DO UPDATE SET
@@ -796,13 +796,13 @@ router.put('/ticket-inventory', (req, res) => {
         price = excluded.price
     `);
 
-    const transaction = db.transaction((entries) => {
+    const transaction = db.transaction(async (entries) => {
       for (const entry of entries) {
         upsert.run(ticket_id, entry.date, entry.total, entry.price);
       }
     });
 
-    transaction(items);
+    await transaction(items);
 
     res.json({ message: `Ticket inventory updated for ${items.length} dates.` });
   } catch (err) {
@@ -812,7 +812,7 @@ router.put('/ticket-inventory', (req, res) => {
 });
 
 /** PUT /package-inventory — 동일 패턴을 package_inventory 에 적용. */
-router.put('/package-inventory', (req, res) => {
+router.put('/package-inventory', async (req, res) => {
   try {
     const db = getDb();
     const { package_id, items } = req.body;
@@ -821,12 +821,12 @@ router.put('/package-inventory', (req, res) => {
       return res.status(400).json({ error: 'package_id and items array are required.' });
     }
 
-    const pkg = db.prepare('SELECT id FROM packages WHERE id = ?').get(package_id);
+    const pkg = await db.prepare('SELECT id FROM packages WHERE id = ?').get(package_id);
     if (!pkg) {
       return res.status(404).json({ error: 'Package not found.' });
     }
 
-    const upsert = db.prepare(`
+    const upsert = await db.prepare(`
       INSERT INTO package_inventory (package_id, date, total_quantity, price)
       VALUES (?, ?, ?, ?)
       ON CONFLICT(package_id, date) DO UPDATE SET
@@ -834,13 +834,13 @@ router.put('/package-inventory', (req, res) => {
         price = excluded.price
     `);
 
-    const transaction = db.transaction((entries) => {
+    const transaction = db.transaction(async (entries) => {
       for (const entry of entries) {
         upsert.run(package_id, entry.date, entry.total, entry.price);
       }
     });
 
-    transaction(items);
+    await transaction(items);
 
     res.json({ message: `Package inventory updated for ${items.length} dates.` });
   } catch (err) {
@@ -864,7 +864,7 @@ router.put('/package-inventory', (req, res) => {
  * "부분 업데이트" 의미가 되도록 SQL CASE 절에서 별도 처리한다. 이 때문에
  * bind 파라미터가 반복 사용된다 (t, t, p, p).
  */
-router.post('/room-inventory/bulk', (req, res) => {
+router.post('/room-inventory/bulk', async (req, res) => {
   try {
     const db = getDb();
     const { room_type_id, start_date, end_date, total_rooms, price, days_of_week } = req.body;
@@ -876,7 +876,7 @@ router.post('/room-inventory/bulk', (req, res) => {
       return res.status(400).json({ error: 'room_type_id, start_date, and end_date are required.' });
     }
 
-    const upsert = db.prepare(`
+    const upsert = await db.prepare(`
       INSERT INTO room_inventory (room_type_id, date, total_rooms, price)
       VALUES (?, ?, ?, ?)
       ON CONFLICT(room_type_id, date) DO UPDATE SET
@@ -888,7 +888,7 @@ router.post('/room-inventory/bulk', (req, res) => {
     const current = new Date(start_date);
     const end = new Date(end_date);
 
-    const transaction = db.transaction(() => {
+    const transaction = db.transaction(async () => {
       while (current <= end) {
         const dayOfWeek = current.getDay();
         if (!days_of_week || days_of_week.length === 0 || days_of_week.includes(dayOfWeek)) {
@@ -901,7 +901,7 @@ router.post('/room-inventory/bulk', (req, res) => {
         current.setDate(current.getDate() + 1);
       }
     });
-    transaction();
+    await transaction();
 
     res.json({ message: `Room inventory updated for ${count} dates.` });
   } catch (err) {
@@ -911,7 +911,7 @@ router.post('/room-inventory/bulk', (req, res) => {
 });
 
 /** POST /ticket-inventory/bulk — 날짜 범위 기반 일괄 설정 (티켓). 패턴 동일. */
-router.post('/ticket-inventory/bulk', (req, res) => {
+router.post('/ticket-inventory/bulk', async (req, res) => {
   try {
     const db = getDb();
     const { ticket_id, start_date, end_date, total_quantity, price, days_of_week } = req.body;
@@ -920,7 +920,7 @@ router.post('/ticket-inventory/bulk', (req, res) => {
       return res.status(400).json({ error: 'ticket_id, start_date, and end_date are required.' });
     }
 
-    const upsert = db.prepare(`
+    const upsert = await db.prepare(`
       INSERT INTO ticket_inventory (ticket_id, date, total_quantity, price)
       VALUES (?, ?, ?, ?)
       ON CONFLICT(ticket_id, date) DO UPDATE SET
@@ -932,7 +932,7 @@ router.post('/ticket-inventory/bulk', (req, res) => {
     const current = new Date(start_date);
     const end = new Date(end_date);
 
-    const transaction = db.transaction(() => {
+    const transaction = db.transaction(async () => {
       while (current <= end) {
         const dayOfWeek = current.getDay();
         if (!days_of_week || days_of_week.length === 0 || days_of_week.includes(dayOfWeek)) {
@@ -945,7 +945,7 @@ router.post('/ticket-inventory/bulk', (req, res) => {
         current.setDate(current.getDate() + 1);
       }
     });
-    transaction();
+    await transaction();
 
     res.json({ message: `Ticket inventory updated for ${count} dates.` });
   } catch (err) {
@@ -955,7 +955,7 @@ router.post('/ticket-inventory/bulk', (req, res) => {
 });
 
 /** POST /package-inventory/bulk — 날짜 범위 기반 일괄 설정 (패키지). */
-router.post('/package-inventory/bulk', (req, res) => {
+router.post('/package-inventory/bulk', async (req, res) => {
   try {
     const db = getDb();
     const { package_id, start_date, end_date, total_quantity, price, days_of_week } = req.body;
@@ -964,7 +964,7 @@ router.post('/package-inventory/bulk', (req, res) => {
       return res.status(400).json({ error: 'package_id, start_date, and end_date are required.' });
     }
 
-    const upsert = db.prepare(`
+    const upsert = await db.prepare(`
       INSERT INTO package_inventory (package_id, date, total_quantity, price)
       VALUES (?, ?, ?, ?)
       ON CONFLICT(package_id, date) DO UPDATE SET
@@ -976,7 +976,7 @@ router.post('/package-inventory/bulk', (req, res) => {
     const current = new Date(start_date);
     const end = new Date(end_date);
 
-    const transaction = db.transaction(() => {
+    const transaction = db.transaction(async () => {
       while (current <= end) {
         const dayOfWeek = current.getDay();
         if (!days_of_week || days_of_week.length === 0 || days_of_week.includes(dayOfWeek)) {
@@ -989,7 +989,7 @@ router.post('/package-inventory/bulk', (req, res) => {
         current.setDate(current.getDate() + 1);
       }
     });
-    transaction();
+    await transaction();
 
     res.json({ message: `Package inventory updated for ${count} dates.` });
   } catch (err) {

@@ -29,7 +29,7 @@ router.use(authenticate, requireAdmin);
  *
  * 정렬: sort_order ASC, created_at DESC
  */
-router.get('/', (req, res) => {
+router.get('/', async (req, res) => {
   try {
     const db = getDb();
     const { status, category } = req.query;
@@ -48,7 +48,7 @@ router.get('/', (req, res) => {
 
     sql += ' ORDER BY sort_order ASC, created_at DESC';
 
-    const showcases = db.prepare(sql).all(...params);
+    const showcases = await db.prepare(sql).all(...params);
 
     // images JSON 파싱
     for (const s of showcases) {
@@ -65,10 +65,10 @@ router.get('/', (req, res) => {
 /**
  * GET /:id — 개별 showcase 상세 (draft 포함).
  */
-router.get('/:id', (req, res) => {
+router.get('/:id', async (req, res) => {
   try {
     const db = getDb();
-    const showcase = db.prepare('SELECT * FROM showcases WHERE id = ?').get(req.params.id);
+    const showcase = await db.prepare('SELECT * FROM showcases WHERE id = ?').get(req.params.id);
 
     if (!showcase) {
       return res.status(404).json({ error: 'Showcase not found.' });
@@ -94,7 +94,7 @@ router.get('/:id', (req, res) => {
  *   - thumbnail_url, images (배열), youtube_url
  *   - category, sort_order, status
  */
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   try {
     const db = getDb();
     const {
@@ -109,7 +109,7 @@ router.post('/', (req, res) => {
 
     const imagesJson = JSON.stringify(images || []);
 
-    const result = db.prepare(`
+    const result = await db.prepare(`
       INSERT INTO showcases (
         title_en, title_cn, summary_en, summary_cn,
         content_en, content_cn, thumbnail_url, images,
@@ -130,7 +130,7 @@ router.post('/', (req, res) => {
       status || 'draft',
     );
 
-    const created = db.prepare('SELECT * FROM showcases WHERE id = ?').get(result.lastInsertRowid);
+    const created = await db.prepare('SELECT * FROM showcases WHERE id = ?').get(result.lastInsertRowid);
     try { created.images = JSON.parse(created.images || '[]'); } catch { created.images = []; }
 
     res.status(201).json({ showcase: created });
@@ -146,7 +146,7 @@ router.post('/', (req, res) => {
  *
  * Body: { orders: [{ id: 1, sort_order: 0 }, { id: 2, sort_order: 1 }, ...] }
  */
-router.put('/reorder', (req, res) => {
+router.put('/reorder', async (req, res) => {
   try {
     const db = getDb();
     const { orders } = req.body;
@@ -155,16 +155,16 @@ router.put('/reorder', (req, res) => {
       return res.status(400).json({ error: 'orders array is required.' });
     }
 
-    const updateOrder = db.transaction((items) => {
+    const updateOrder = db.transaction(async (items) => {
       for (const item of items) {
-        db.prepare('UPDATE showcases SET sort_order = ?, updated_at = datetime(\'now\') WHERE id = ?')
+        await db.prepare('UPDATE showcases SET sort_order = ?, updated_at = datetime(\'now\') WHERE id = ?')
           .run(item.sort_order, item.id);
       }
     });
 
-    updateOrder(orders);
+    await updateOrder(orders);
 
-    const showcases = db.prepare('SELECT * FROM showcases ORDER BY sort_order ASC, created_at DESC').all();
+    const showcases = await db.prepare('SELECT * FROM showcases ORDER BY sort_order ASC, created_at DESC').all();
     for (const s of showcases) {
       try { s.images = JSON.parse(s.images || '[]'); } catch { s.images = []; }
     }
@@ -181,10 +181,10 @@ router.put('/reorder', (req, res) => {
  *
  * Body 에 포함된 필드만 업데이트한다 (partial update).
  */
-router.put('/:id', (req, res) => {
+router.put('/:id', async (req, res) => {
   try {
     const db = getDb();
-    const existing = db.prepare('SELECT * FROM showcases WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT * FROM showcases WHERE id = ?').get(req.params.id);
 
     if (!existing) {
       return res.status(404).json({ error: 'Showcase not found.' });
@@ -198,7 +198,7 @@ router.put('/:id', (req, res) => {
 
     const imagesJson = images !== undefined ? JSON.stringify(images) : existing.images;
 
-    db.prepare(`
+    await db.prepare(`
       UPDATE showcases SET
         title_en = ?, title_cn = ?, summary_en = ?, summary_cn = ?,
         content_en = ?, content_cn = ?, thumbnail_url = ?, images = ?,
@@ -221,7 +221,7 @@ router.put('/:id', (req, res) => {
       req.params.id,
     );
 
-    const updated = db.prepare('SELECT * FROM showcases WHERE id = ?').get(req.params.id);
+    const updated = await db.prepare('SELECT * FROM showcases WHERE id = ?').get(req.params.id);
     try { updated.images = JSON.parse(updated.images || '[]'); } catch { updated.images = []; }
 
     res.json({ showcase: updated });
@@ -234,16 +234,16 @@ router.put('/:id', (req, res) => {
 /**
  * DELETE /:id — showcase 삭제 (hard delete).
  */
-router.delete('/:id', (req, res) => {
+router.delete('/:id', async (req, res) => {
   try {
     const db = getDb();
-    const existing = db.prepare('SELECT id FROM showcases WHERE id = ?').get(req.params.id);
+    const existing = await db.prepare('SELECT id FROM showcases WHERE id = ?').get(req.params.id);
 
     if (!existing) {
       return res.status(404).json({ error: 'Showcase not found.' });
     }
 
-    db.prepare('DELETE FROM showcases WHERE id = ?').run(req.params.id);
+    await db.prepare('DELETE FROM showcases WHERE id = ?').run(req.params.id);
     res.json({ message: 'Showcase deleted successfully.' });
   } catch (err) {
     console.error('Error deleting showcase:', err);
