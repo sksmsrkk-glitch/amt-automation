@@ -39,6 +39,8 @@ import PaymentManagement from './pages/PaymentManagement'
 // Access Codes — 특정 유저에게 특정 상품 구매 권한을 부여하는 ACG-XXXX
 // 토큰을 관리. 페이지 자체 헤더 주석에 설계 상세 있음.
 import AccessCodeManagement from './pages/AccessCodeManagement'
+// Showcase — 리조트 소개 콘텐츠(메인 페이지 썸네일 + 상세 페이지) 관리.
+import ShowcaseManagement from './pages/ShowcaseManagement'
 import Settings from './pages/Settings'
 
 /**
@@ -135,6 +137,8 @@ export default function App() {
               {/* Access Codes — 구매 게이트 코드 발급/관리. 사이드바 메뉴의
                   /access-codes 와 동일한 경로. */}
               <Route path="/access-codes" element={<AccessCodeManagement />} />
+              {/* Showcase — 리조트 소개 콘텐츠 관리 */}
+              <Route path="/showcases" element={<ShowcaseManagement />} />
               <Route path="/settings" element={<Settings />} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

@@ -148,11 +148,13 @@ const styles = {
  * - 부작용: 마운트 시 /hotels, /tickets, /packages 각 한 번씩 fetch.
  */
 export default function Home() {
-  const { t } = useTranslation()
+  const { t, i18n } = useTranslation()
   const [hotels, setHotels] = useState([])
   const [tickets, setTickets] = useState([])
   const [packages, setPackages] = useState([])
+  const [showcases, setShowcases] = useState([])
   const [loading, setLoading] = useState(true)
+  const lang = i18n.language === 'cn' ? 'cn' : 'en'
 
   // 마운트 시 한 번 세 API 를 병렬로 호출.
   // allSettled 로 감싸 한쪽 API 가 실패해도 나머지 섹션은 계속 보여준다.
@@ -160,16 +162,18 @@ export default function Home() {
     const fetchData = async () => {
       setLoading(true)
       try {
-        const [hotelsRes, ticketsRes, packagesRes] = await Promise.allSettled([
+        const [hotelsRes, ticketsRes, packagesRes, showcasesRes] = await Promise.allSettled([
           get('/hotels'),
           get('/tickets'),
           get('/packages'),
+          get('/showcases'),
         ])
         // 응답 shape 은 { hotels: [...] } / { data: [...] } / [...] 중 하나.
         // 세 가지를 모두 허용해 상위 N개만 잘라 쓴다.
         setHotels((hotelsRes.status === 'fulfilled' ? (hotelsRes.value.hotels || hotelsRes.value.data || hotelsRes.value || []) : []).slice(0, 3))
         setTickets((ticketsRes.status === 'fulfilled' ? (ticketsRes.value.tickets || ticketsRes.value.data || ticketsRes.value || []) : []).slice(0, 4))
         setPackages((packagesRes.status === 'fulfilled' ? (packagesRes.value.packages || packagesRes.value.data || packagesRes.value || []) : []).slice(0, 3))
+        setShowcases((showcasesRes.status === 'fulfilled' ? (showcasesRes.value.showcases || showcasesRes.value.data || showcasesRes.value || []) : []).slice(0, 4))
       } catch (err) {
         console.error('Failed to fetch home data:', err)
       } finally {
@@ -286,6 +290,88 @@ export default function Home() {
           </div>
         )}
       </div>
+
+      {/* Explore the Resort — Showcase 썸네일 */}
+      {showcases.length > 0 && (
+        <div style={{ ...styles.section, background: 'var(--bg)', paddingTop: '20px' }}>
+          <div style={styles.sectionHeader}>
+            <h2 style={styles.sectionTitle}>{t('home.exploreResort')}</h2>
+            <Link
+              to="/explore"
+              style={styles.viewAll}
+              onMouseEnter={e => { e.target.style.color = 'var(--accent)' }}
+              onMouseLeave={e => { e.target.style.color = 'var(--primary)' }}
+            >
+              {t('home.viewAll')} &rarr;
+            </Link>
+          </div>
+          <div style={styles.grid4} className="home-grid-4">
+            {showcases.map(item => (
+              <Link
+                key={item.id}
+                to={`/explore/${item.id}`}
+                style={{
+                  borderRadius: 'var(--radius-md)',
+                  overflow: 'hidden',
+                  boxShadow: 'var(--shadow-sm)',
+                  border: '1px solid var(--border-light)',
+                  background: 'var(--white)',
+                  transition: 'all 0.3s ease',
+                  textDecoration: 'none',
+                  display: 'block',
+                }}
+                onMouseEnter={e => {
+                  e.currentTarget.style.transform = 'translateY(-6px)'
+                  e.currentTarget.style.boxShadow = 'var(--shadow-md)'
+                }}
+                onMouseLeave={e => {
+                  e.currentTarget.style.transform = 'translateY(0)'
+                  e.currentTarget.style.boxShadow = 'var(--shadow-sm)'
+                }}
+              >
+                {item.thumbnail_url ? (
+                  <img
+                    src={item.thumbnail_url}
+                    alt={lang === 'cn' ? (item.title_cn || item.title_en) : item.title_en}
+                    style={{ width: '100%', height: '180px', objectFit: 'cover', display: 'block' }}
+                    onError={e => { e.target.style.display = 'none' }}
+                  />
+                ) : (
+                  <div style={{
+                    width: '100%', height: '180px',
+                    background: 'linear-gradient(135deg, #e2e8f0 0%, #cbd5e1 100%)',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: '2.5rem',
+                  }}>
+                    {'\u{1F3D4}'}
+                  </div>
+                )}
+                <div style={{ padding: '16px' }}>
+                  <div style={{
+                    fontSize: '0.7rem', fontWeight: 600, color: 'var(--primary)',
+                    textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '6px',
+                  }}>
+                    {item.category}
+                  </div>
+                  <h3 style={{
+                    fontSize: '0.95rem', fontWeight: 700, color: 'var(--text-primary)',
+                    marginBottom: '6px', lineHeight: 1.3,
+                  }}>
+                    {lang === 'cn' ? (item.title_cn || item.title_en) : item.title_en}
+                  </h3>
+                  <p style={{
+                    fontSize: '0.8rem', color: 'var(--text-secondary)', lineHeight: 1.5,
+                    display: '-webkit-box', WebkitLineClamp: 2,
+                    WebkitBoxOrient: 'vertical', overflow: 'hidden',
+                  }}>
+                    {lang === 'cn' ? (item.summary_cn || item.summary_en) : item.summary_en}
+                  </p>
+                </div>
+              </Link>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Why Choose High1 */}
       <div style={styles.whySection}>

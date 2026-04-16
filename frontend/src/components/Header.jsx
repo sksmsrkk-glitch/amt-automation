@@ -276,6 +276,7 @@ export default function Header() {
     { path: '/hotels', label: t('nav.hotels') },
     { path: '/tickets', label: t('nav.tickets') },
     { path: '/packages', label: t('nav.packages') },
+    { path: '/explore', label: t('nav.explore') },
   ]
 
   return (
