@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "description": "High1 Resort Foreign Visitor Booking Platform",
   "scripts": {
+    "postinstall": "cd backend && npm install && cd ../frontend && npm install && cd ../admin && npm install",
     "install:all": "cd backend && npm install && cd ../frontend && npm install && cd ../admin && npm install",
     "build:frontend": "cd frontend && npm run build",
     "build:admin": "cd admin && npm run build",
