@@ -84,6 +84,15 @@ app.use(express.urlencoded({ extended: true }));
  * (에러 핸들러는 라우트 뒤에 붙어야 작동한다. Express 규칙)
  */
 async function start() {
+  // [DEBUG] 환경변수 상태 출력 (배포 디버깅용)
+  console.log('=== Environment Variables Debug ===');
+  console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'SET (' + process.env.DATABASE_URL.substring(0, 30) + '...)' : 'NOT SET');
+  console.log('JWT_SECRET:', process.env.JWT_SECRET ? 'SET' : 'NOT SET');
+  console.log('PORT:', process.env.PORT || 'default');
+  console.log('NODE_ENV:', process.env.NODE_ENV || 'default');
+  console.log('Available env keys (non-npm):', Object.keys(process.env).filter(k => !k.startsWith('npm_') && !k.startsWith('_')).join(', '));
+  console.log('====================================');
+
   // 1) 데이터베이스를 먼저 초기화한다.
   //    initDb() 는:
   //      - backend/data 디렉터리가 없으면 만든다.
