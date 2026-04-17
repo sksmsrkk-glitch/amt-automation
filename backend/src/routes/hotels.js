@@ -22,14 +22,22 @@ const router = express.Router();
 /**
  * GET / — 활성 호텔 목록.
  *
- * Query: { search? }  — name_en / name_cn / address 부분 일치 검색.
+ * Query: { search?, checkIn?, checkOut? }
+ *   - search  : name_en / name_cn / address 부분 일치 검색.
+ *   - checkIn / checkOut : YYYY-MM-DD. 지정 시 각 호텔의 해당 기간 내
+ *                          최저 가격(room_inventory.price 합산의 최소)을
+ *                          date_price 필드에 실어 응답한다.
+ *                          한 날짜라도 재고가 없으면 해당 방 타입은 제외.
+ *                          모든 방 타입이 불가인 호텔은 date_price 가 null.
+ *
  * 응답: 200 { hotels: [...] }  — amenities 는 JSON 파싱된 배열.
+ *        dates 가 주어진 경우 각 hotel 에 date_price (수치 또는 null) 포함.
  * 실패: 500 내부 에러
  */
 router.get('/', async (req, res) => {
   try {
     const db = getDb();
-    const { search } = req.query;
+    const { search, checkIn, checkOut } = req.query;
 
     let query = 'SELECT * FROM hotels WHERE status = ?';
     const params = ['active'];
@@ -53,8 +61,57 @@ router.get('/', async (req, res) => {
     // amenities 컬럼은 DB 에 JSON 문자열로 저장됨. 응답 전에 배열로 디코딩.
     const result = hotels.map(hotel => ({
       ...hotel,
-      amenities: JSON.parse(hotel.amenities || '[]')
+      amenities: JSON.parse(hotel.amenities || '[]'),
     }));
+
+    // 날짜가 주어졌으면 각 호텔에 date_price 를 계산해 붙인다.
+    // 계산 로직:
+    //   1) 호텔의 활성 room_type 조회
+    //   2) 각 room_type 에 대해 [checkIn, checkOut) 구간의 room_inventory
+    //      를 가져오고, 모든 날짜에 재고가 있으면 가격 합을 total 로 사용
+    //   3) 모든 room_type 의 total 중 최소값이 해당 호텔의 date_price
+    //   4) 한 room_type 이라도 완벽한 기간 커버리지를 못 하면 제외
+    //   5) 전부 제외되면 date_price = null (프런트에서 base 가격 폴백)
+    if (checkIn && checkOut && checkIn < checkOut) {
+      // N+1 은 피할 수 있지만 활성 호텔 수가 많지 않은 규모라 단순성 우선.
+      await Promise.all(result.map(async (hotel) => {
+        const roomTypes = await db.prepare(
+          'SELECT id, base_price FROM room_types WHERE hotel_id = ? AND status = ?'
+        ).all(hotel.id, 'active');
+
+        const nights = Math.floor(
+          (new Date(checkOut) - new Date(checkIn)) / 86400000
+        );
+
+        let hotelMin = null;
+        for (const rt of roomTypes) {
+          const inv = await db.prepare(
+            `SELECT date, price, total_rooms, booked_rooms
+             FROM room_inventory
+             WHERE room_type_id = ? AND date >= ? AND date < ?
+             ORDER BY date ASC`
+          ).all(rt.id, checkIn, checkOut);
+
+          // 날짜 커버리지 + 재고 여유 확인. 한 날이라도 row 가 없거나
+          // 잔량이 0 이면 해당 room_type 은 이 기간에 판매 불가.
+          if (inv.length !== nights) continue;
+          const allAvailable = inv.every(
+            (row) => (row.total_rooms - row.booked_rooms) > 0
+          );
+          if (!allAvailable) continue;
+
+          // 기간 합산 가격. inventory.price 가 null 이면 room_type.base_price 로 폴백.
+          const total = inv.reduce(
+            (sum, row) => sum + Number(row.price ?? rt.base_price ?? 0),
+            0
+          );
+          if (hotelMin === null || total < hotelMin) hotelMin = total;
+        }
+
+        hotel.date_price = hotelMin;
+        hotel.nights = nights;
+      }));
+    }
 
     res.json({ hotels: result });
   } catch (err) {

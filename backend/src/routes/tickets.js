@@ -19,13 +19,18 @@ const router = express.Router();
 /**
  * GET / — 활성 티켓 목록.
  *
- * Query: { category?, search? }
- * 응답: 200 { tickets: [...] } | 500 내부 에러
+ * Query: { category?, search?, date? }
+ *   - date : YYYY-MM-DD. 지정 시 각 티켓에 해당 날짜의 ticket_inventory.price
+ *            을 date_price 로 실어 응답한다. inventory row 가 없거나 재고
+ *            잔량이 0 이면 date_price = null (프런트는 base_price 로 폴백).
+ *
+ * 응답: 200 { tickets: [...] }  — date 가 주어지면 각 티켓에 date_price 포함.
+ * 실패: 500 내부 에러
  */
 router.get('/', async (req, res) => {
   try {
     const db = getDb();
-    const { category, search } = req.query;
+    const { category, search, date } = req.query;
 
     let query = 'SELECT * FROM tickets WHERE status = ?';
     const params = ['active'];
@@ -44,6 +49,25 @@ router.get('/', async (req, res) => {
     query += ' ORDER BY is_featured DESC, sort_order ASC, id DESC';
 
     const tickets = await db.prepare(query).all(...params);
+
+    // 날짜 파라미터가 주어지면 각 티켓에 해당 날짜 가격/재고를 붙인다.
+    // inventory 가 없거나 잔량 0 이면 date_price = null. 프런트엔드 ProductCard
+    // 는 date_price 가 null 이면 base_price 를 폴백으로 표시한다.
+    if (date) {
+      await Promise.all(tickets.map(async (ticket) => {
+        const inv = await db.prepare(
+          `SELECT price, total_quantity, booked_quantity
+           FROM ticket_inventory
+           WHERE ticket_id = ? AND date = ?`
+        ).get(ticket.id, date);
+
+        if (inv && (inv.total_quantity - inv.booked_quantity) > 0) {
+          ticket.date_price = Number(inv.price ?? ticket.base_price ?? 0);
+        } else {
+          ticket.date_price = null;
+        }
+      }));
+    }
 
     res.json({ tickets });
   } catch (err) {

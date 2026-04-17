@@ -21,13 +21,18 @@ const router = express.Router();
 /**
  * GET / — 활성 패키지 목록.
  *
- * Query: { search? }
- * 응답: 200 { packages: [...] } — includes 는 JSON 파싱된 배열.
+ * Query: { search?, date? }
+ *   - date : YYYY-MM-DD. 지정 시 각 패키지의 해당 날짜 package_inventory.price
+ *            를 date_price 로 실어 응답한다. inventory 가 없거나 잔량 0 이면
+ *            date_price = null.
+ *
+ * 응답: 200 { packages: [...] }  — includes 는 JSON 파싱된 배열.
+ *        date 주어진 경우 각 package 에 date_price 포함.
  */
 router.get('/', async (req, res) => {
   try {
     const db = getDb();
-    const { search } = req.query;
+    const { search, date } = req.query;
 
     let query = 'SELECT * FROM packages WHERE status = ?';
     const params = ['active'];
@@ -44,8 +49,25 @@ router.get('/', async (req, res) => {
 
     const result = packages.map(pkg => ({
       ...pkg,
-      includes: JSON.parse(pkg.includes || '[]')
+      includes: JSON.parse(pkg.includes || '[]'),
     }));
+
+    // 날짜가 주어지면 각 패키지에 date_price 를 붙인다. 규약은 tickets 와 동일.
+    if (date) {
+      await Promise.all(result.map(async (pkg) => {
+        const inv = await db.prepare(
+          `SELECT price, total_quantity, booked_quantity
+           FROM package_inventory
+           WHERE package_id = ? AND date = ?`
+        ).get(pkg.id, date);
+
+        if (inv && (inv.total_quantity - inv.booked_quantity) > 0) {
+          pkg.date_price = Number(inv.price ?? pkg.base_price ?? 0);
+        } else {
+          pkg.date_price = null;
+        }
+      }));
+    }
 
     res.json({ packages: result });
   } catch (err) {
