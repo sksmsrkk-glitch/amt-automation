@@ -15,16 +15,19 @@ WORKDIR /app
 COPY package.json ./
 
 # Backend 의존성
+# npm ci 는 package-lock.json 기준으로 정확히 설치한다.
+# lockfile 과 package.json 이 어긋나면 즉시 실패하여 드리프트를 빌드 단계에서
+# 감지할 수 있다 (과거 pg 누락 이슈 재발 방지).
 COPY backend/package.json backend/package-lock.json* ./backend/
-RUN cd backend && npm install --production=false
+RUN cd backend && npm ci --include=dev
 
 # Frontend 의존성
 COPY frontend/package.json frontend/package-lock.json* ./frontend/
-RUN cd frontend && npm install --production=false
+RUN cd frontend && npm ci --include=dev
 
 # Admin 의존성
 COPY admin/package.json admin/package-lock.json* ./admin/
-RUN cd admin && npm install --production=false
+RUN cd admin && npm ci --include=dev
 
 # 전체 소스 복사
 COPY . .
