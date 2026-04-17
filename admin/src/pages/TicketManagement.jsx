@@ -110,6 +110,17 @@ export default function TicketManagement() {
     setShowModal(true)
   }
 
+  // images 컬럼은 백엔드가 배열로 파싱해 내려주지만, 혹시 JSON 문자열 형태로
+  // 응답이 올 때도 ImageUploader 가 .map() 으로 크래시하지 않도록 방어적으로 파싱.
+  const parseImages = (value) => {
+    if (Array.isArray(value)) return value
+    if (typeof value === 'string' && value.length > 0) {
+      try { const parsed = JSON.parse(value); return Array.isArray(parsed) ? parsed : [] }
+      catch { return [] }
+    }
+    return []
+  }
+
   // 편집 모달 열기. price / base_price 두 가지 필드명을 모두 허용.
   const openEdit = (ticket) => {
     setEditing(ticket)
@@ -121,7 +132,7 @@ export default function TicketManagement() {
       category: ticket.category || '',
       price: ticket.price || ticket.base_price || '',
       status: ticket.status || 'active',
-      images: ticket.images || [],
+      images: parseImages(ticket.images),
       is_featured: ticket.is_featured || 0,
       sort_order: ticket.sort_order || 0,
       // 기존 티켓 수정 모달 진입 시 access-code 게이트 플래그 동기화.
