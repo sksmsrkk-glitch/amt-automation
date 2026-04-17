@@ -235,7 +235,10 @@ router.get('/', async (req, res) => {
     }
 
     const countQuery = `SELECT COUNT(*) as total FROM bookings b ${whereClause}`;
-    const total = await db.prepare(countQuery).get(...params).total;
+    // 괄호 위치에 주의: `await db.prepare().get().total` 로 쓰면 연산자 우선순위
+    // 상 `await (promise.total)` 가 되어 total 이 undefined 가 된다.
+    // 반드시 await 를 먼저 풀어 row 객체를 얻은 다음 .total 을 꺼내야 한다.
+    const total = (await db.prepare(countQuery).get(...params)).total;
 
     const dataQuery = `SELECT b.* FROM bookings b ${whereClause} ORDER BY b.created_at DESC LIMIT ? OFFSET ?`;
     const bookings = await db.prepare(dataQuery).all(...params, limitNum, offset);
