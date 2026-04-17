@@ -6,8 +6,6 @@
 //     해당 기간/인원으로 제공 가능한 호텔을 받아 카드 그리드로 보여 준다.
 //   - 체크인/체크아웃 날짜 + 인원을 이 페이지 자체에서 바꿀 수 있는 인라인
 //     검색 폼을 제공한다. (홈으로 돌아가지 않고 재검색)
-//   - 추가로 로컬 텍스트 필터(name_en/name_cn/description_*/address)로
-//     클라이언트 사이드 필터링.
 //
 // 렌더 위치: App.jsx 의 /hotels 라우트. lazy-loaded.
 //
@@ -57,7 +55,7 @@ const styles = {
     border: '1px solid var(--border-light)',
     borderRadius: 'var(--radius-sm)',
     boxShadow: 'var(--shadow-sm)',
-    marginBottom: '20px',
+    marginBottom: '28px',
     flexWrap: 'wrap',
   },
   field: {
@@ -94,24 +92,6 @@ const styles = {
     whiteSpace: 'nowrap',
     flexShrink: 0,
   },
-  filterBar: {
-    display: 'flex',
-    gap: '12px',
-    marginBottom: '28px',
-    flexWrap: 'wrap',
-    alignItems: 'center',
-  },
-  searchInput: {
-    flex: 1,
-    minWidth: '200px',
-    padding: '12px 16px',
-    border: '1.5px solid var(--border)',
-    borderRadius: 'var(--radius-sm)',
-    fontSize: '0.9rem',
-    color: 'var(--text-primary)',
-    background: 'var(--white)',
-    transition: 'var(--transition)',
-  },
   grid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(3, 1fr)',
@@ -131,8 +111,6 @@ export default function HotelList() {
   const [hotels, setHotels] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  // 클라이언트 사이드 인크리멘털 필터(이름/설명/주소 부분일치).
-  const [searchTerm, setSearchTerm] = useState('')
 
   // 인라인 검색 폼 로컬 상태. URL 쿼리의 현재 값으로 초기화해, 사용자가
   // 조건을 수정 → 제출할 때까지 URL 은 바뀌지 않는다.
@@ -184,19 +162,6 @@ export default function HotelList() {
     if (formGuests) next.set('guests', formGuests)
     setSearchParams(next)
   }
-
-  // 부분 일치 검색 — 실제 필드명은 name_en/name_cn/description_en/description_cn/address.
-  // 이전 구현은 존재하지 않는 h.name / h.description 을 읽어 항상 빈 문자열과
-  // 비교하고 있었기 때문에 검색이 어떤 글자를 넣어도 걸리지 않는 버그가 있었다.
-  const filtered = hotels.filter((h) => {
-    if (!searchTerm) return true
-    const needle = searchTerm.toLowerCase()
-    const haystack = [h.name_en, h.name_cn, h.description_en, h.description_cn, h.address]
-      .filter(Boolean)
-      .join(' ')
-      .toLowerCase()
-    return haystack.includes(needle)
-  })
 
   if (loading) {
     return (
@@ -251,21 +216,9 @@ export default function HotelList() {
         <button type="submit" style={styles.searchBtn}>{t('common.search')}</button>
       </form>
 
-      <div style={styles.filterBar}>
-        <input
-          type="text"
-          style={styles.searchInput}
-          placeholder={t('hotel.searchHotels')}
-          value={searchTerm}
-          onChange={e => setSearchTerm(e.target.value)}
-          onFocus={e => { e.target.style.borderColor = 'var(--primary)' }}
-          onBlur={e => { e.target.style.borderColor = 'var(--border)' }}
-        />
-      </div>
-
-      {filtered.length > 0 ? (
+      {hotels.length > 0 ? (
         <div style={styles.grid} className="hotel-grid">
-          {filtered.map(hotel => (
+          {hotels.map(hotel => (
             <ProductCard key={hotel._id || hotel.id} type="hotel" data={hotel} />
           ))}
         </div>
