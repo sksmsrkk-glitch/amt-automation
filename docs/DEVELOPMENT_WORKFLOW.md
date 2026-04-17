@@ -105,6 +105,15 @@ git checkout -b chore/upgrade-express-5
 □ 관리자 전용이면 requireAdmin 도 붙였는가?              ← RBAC
 □ 응답에서 password 등 민감 컬럼이 제외됐는가?           ← 정보 유출
 □ 에러 응답을 { error: "..." } 형식으로 통일했는가?       ← 프론트 fetch wrapper 규약
+□ DB 의 JSON TEXT 컬럼(images/amenities 등)을 응답 전에
+  JSON.parse 로 배열로 디코딩했는가?                    ← 프론트 .map() 크래시 → 화이트스크린
+□ JSX { flag && <X/> } 의 flag 가 integer 아닌가?       ← DB 0/1 을 그대로 쓰면 "0" 이 화면에 찍힘
+   ├ 금지: {data.is_featured && <Badge/>}                   (0 → "0" 렌더)
+   └ 권장: {Boolean(data.is_featured) && <Badge/>}          또는 data.is_featured === 1
+     * false/null/undefined 만 스킵. number 0, NaN, 빈 문자열은 텍스트로 그대로 렌더됨.
+□ `await db.prepare(sql).get(...).field` 괄호 위치 점검     ← 연산자 우선순위로 promise.field = undefined
+   ├ 금지: const t = await db.prepare(...).get(...).total       (t = undefined)
+   └ 권장: const t = (await db.prepare(...).get(...)).total
 ```
 
 ### 코딩 스타일 (이 저장소 관습)
