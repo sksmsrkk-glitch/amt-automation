@@ -92,7 +92,7 @@ if (!JWT_SECRET) {
  *   - 401 "Invalid token."           : 그 외 검증 실패
  *   - 401 "User not found."          : 토큰은 유효하지만 DB 사용자 없음
  */
-function authenticate(req, res, next) {
+async function authenticate(req, res, next) {
   const authHeader = req.headers.authorization;
   if (!authHeader || !authHeader.startsWith('Bearer ')) {
     return res.status(401).json({ error: 'Authentication required. Please provide a valid token.' });
@@ -108,7 +108,10 @@ function authenticate(req, res, next) {
     //   - password 해시는 절대 포함하지 않는다 (보안).
     //   - avatar_url / google_id 는 프런트가 구글 프로필 사진과
     //     소셜 로그인 배지를 렌더링하는 데 필요하므로 포함한다.
-    const user = db.prepare(
+    // pg wrapper 의 .get() 은 Promise 를 반환하므로 반드시 await 해야 한다.
+    // await 없이 쓰면 req.user 에 Promise 가 들어가 req.user.role 이 undefined
+    // 가 되고, requireAdmin 에서 모든 관리자 요청이 403 으로 차단된다.
+    const user = await db.prepare(
       'SELECT id, email, name, phone, nationality, role, language, avatar_url, google_id, created_at FROM users WHERE id = ?'
     ).get(decoded.userId);
 

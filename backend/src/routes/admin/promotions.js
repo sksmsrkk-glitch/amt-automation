@@ -86,7 +86,9 @@ router.get('/', async (req, res) => {
 
     query += ' ORDER BY id DESC';
 
-    const promotions = await db.prepare(query).all(...params).map(parseBlackoutDates);
+    // 괄호 위치: `await db.prepare().all().map()` 로 쓰면 `await (promise.map)` 가
+    // 되어 undefined 가 된다. await 로 배열을 먼저 얻은 뒤 map 을 호출해야 한다.
+    const promotions = (await db.prepare(query).all(...params)).map(parseBlackoutDates);
     res.json({ promotions });
   } catch (err) {
     console.error('List promotions error:', err);
