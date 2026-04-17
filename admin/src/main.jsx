@@ -24,9 +24,17 @@ import './App.css'
 // React 18 의 concurrent root. AuthProvider 가 Routes 보다 바깥에 있어야
 // 모든 페이지에서 useAuth() 를 사용할 수 있다. 순서를 바꾸면 컨텍스트가
 // 없어 런타임 에러가 난다.
+//
+// basename 은 Vite 의 BASE_URL 을 그대로 사용하여 vite.config.js 의 base
+// 설정과 자동 동기화한다:
+//   - dev:  BASE_URL='/'        → basename=''    (루트 서빙)
+//   - build: BASE_URL='/admin/' → basename='/admin' (프로덕션 prefix)
+// React Router 는 trailing slash 를 원치 않으므로 마지막 '/' 을 제거한다.
+const routerBasename = import.meta.env.BASE_URL.replace(/\/$/, '')
+
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>
-    <BrowserRouter basename="/admin">
+    <BrowserRouter basename={routerBasename}>
       <AuthProvider>
         <App />
       </AuthProvider>
