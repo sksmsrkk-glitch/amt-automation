@@ -326,8 +326,14 @@ export default function ProductCard({ type = 'hotel', data, onClick }) {
     : { ...styles.imageArea, background: gradients[type] || gradients.hotel }
 
   // Determine where to show featured vs rating badge (both use top-right)
-  const isFeatured = data.is_featured
-  const rating = type === 'hotel' ? getRating() : null
+  //
+  // ⚠ 반드시 boolean 으로 변환해야 한다. DB 에서 is_featured 는 0/1 integer 로
+  // 내려오는데, JSX `{0 && <span/>}` 는 short-circuit 으로 숫자 0 을 반환하고
+  // React 는 number 0 을 텍스트로 그대로 렌더한다(false/null/undefined 만 skip).
+  // 과거 모든 카드 썸네일에 "0" 이 찍히던 버그의 원인이었다.
+  const isFeatured = Boolean(data.is_featured)
+  const ratingValue = type === 'hotel' ? getRating() : null
+  const rating = ratingValue && Number(ratingValue) > 0 ? ratingValue : null
 
   return (
     <div
