@@ -400,11 +400,19 @@ router.delete('/room-types/:id', async (req, res) => {
 // 기본 구조는 HOTELS 와 동일. 주요 차이점은 category/duration/location
 // 같은 티켓 전용 필드가 있다는 것뿐.
 
-/** GET /tickets — 모든 티켓 목록. */
+/** GET /tickets — 모든 티켓 목록. images 컬럼은 JSON 문자열로 저장되므로
+ * 프런트엔드의 ImageUploader 가 배열로 받을 수 있도록 파싱해서 응답한다.
+ * (hotels / packages GET 과 동일 규약. 이 파싱이 빠지면 어드민 편집 모달에서
+ *  form.images 에 문자열이 들어가고 ImageUploader 가 .map() 호출 시 예외가
+ *  나서 페이지가 하얀 화면이 된다.)
+ */
 router.get('/tickets', async (req, res) => {
   try {
     const db = getDb();
-    const tickets = await db.prepare('SELECT * FROM tickets ORDER BY id DESC').all();
+    const tickets = (await db.prepare('SELECT * FROM tickets ORDER BY id DESC').all()).map(t => ({
+      ...t,
+      images: JSON.parse(t.images || '[]'),
+    }));
     res.json({ tickets });
   } catch (err) {
     console.error('Admin list tickets error:', err);
