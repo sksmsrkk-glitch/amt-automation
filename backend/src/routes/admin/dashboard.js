@@ -39,40 +39,44 @@ router.get('/overview', async (req, res) => {
   try {
     const db = getDb();
 
-    const totalBookings = await db.prepare('SELECT COUNT(*) as count FROM bookings').get().count;
-    const totalRevenue = await db.prepare("SELECT COALESCE(SUM(total_price), 0) as total FROM bookings WHERE status != 'cancelled' AND payment_status = 'paid'").get().total;
-    const totalUsers = await db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'customer'").get().count;
+    // ⚠ 괄호 위치 주의: `await X.get().count` 로 쓰면 연산자 우선순위상
+    // `await (promise.count)` 가 되어 promise.count 는 undefined → 모든 집계가
+    // undefined 로 내려갔다. 반드시 await 를 먼저 풀어 row 객체를 얻은 다음
+    // .count / .total 에 접근해야 한다.
+    const totalBookings = (await db.prepare('SELECT COUNT(*) as count FROM bookings').get()).count;
+    const totalRevenue = (await db.prepare("SELECT COALESCE(SUM(total_price), 0) as total FROM bookings WHERE status != 'cancelled' AND payment_status = 'paid'").get()).total;
+    const totalUsers = (await db.prepare("SELECT COUNT(*) as count FROM users WHERE role = 'customer'").get()).count;
 
-    const totalHotels = await db.prepare("SELECT COUNT(*) as count FROM hotels WHERE status = 'active'").get().count;
-    const totalTickets = await db.prepare("SELECT COUNT(*) as count FROM tickets WHERE status = 'active'").get().count;
-    const totalPackages = await db.prepare("SELECT COUNT(*) as count FROM packages WHERE status = 'active'").get().count;
+    const totalHotels = (await db.prepare("SELECT COUNT(*) as count FROM hotels WHERE status = 'active'").get()).count;
+    const totalTickets = (await db.prepare("SELECT COUNT(*) as count FROM tickets WHERE status = 'active'").get()).count;
+    const totalPackages = (await db.prepare("SELECT COUNT(*) as count FROM packages WHERE status = 'active'").get()).count;
 
-    const pendingBookings = await db.prepare("SELECT COUNT(*) as count FROM bookings WHERE status = 'pending'").get().count;
-    const confirmedBookings = await db.prepare("SELECT COUNT(*) as count FROM bookings WHERE status = 'confirmed'").get().count;
-    const cancelledBookings = await db.prepare("SELECT COUNT(*) as count FROM bookings WHERE status = 'cancelled'").get().count;
+    const pendingBookings = (await db.prepare("SELECT COUNT(*) as count FROM bookings WHERE status = 'pending'").get()).count;
+    const confirmedBookings = (await db.prepare("SELECT COUNT(*) as count FROM bookings WHERE status = 'confirmed'").get()).count;
+    const cancelledBookings = (await db.prepare("SELECT COUNT(*) as count FROM bookings WHERE status = 'cancelled'").get()).count;
 
     const today = new Date().toISOString().split('T')[0];
-    const todayBookings = await db.prepare("SELECT COUNT(*) as count FROM bookings WHERE DATE(created_at) = ?").get(today).count;
-    const todayRevenue = await db.prepare("SELECT COALESCE(SUM(total_price), 0) as total FROM bookings WHERE DATE(created_at) = ? AND status != 'cancelled'").get(today).total;
+    const todayBookings = (await db.prepare("SELECT COUNT(*) as count FROM bookings WHERE DATE(created_at) = ?").get(today)).count;
+    const todayRevenue = (await db.prepare("SELECT COALESCE(SUM(total_price), 0) as total FROM bookings WHERE DATE(created_at) = ? AND status != 'cancelled'").get(today)).total;
 
     res.json({
-      total_bookings: totalBookings,
-      total_revenue: totalRevenue,
-      total_users: totalUsers,
+      total_bookings: Number(totalBookings) || 0,
+      total_revenue: Number(totalRevenue) || 0,
+      total_users: Number(totalUsers) || 0,
       products: {
-        hotels: totalHotels,
-        tickets: totalTickets,
-        packages: totalPackages
+        hotels: Number(totalHotels) || 0,
+        tickets: Number(totalTickets) || 0,
+        packages: Number(totalPackages) || 0,
       },
       booking_status: {
-        pending: pendingBookings,
-        confirmed: confirmedBookings,
-        cancelled: cancelledBookings
+        pending: Number(pendingBookings) || 0,
+        confirmed: Number(confirmedBookings) || 0,
+        cancelled: Number(cancelledBookings) || 0,
       },
       today: {
-        bookings: todayBookings,
-        revenue: todayRevenue
-      }
+        bookings: Number(todayBookings) || 0,
+        revenue: Number(todayRevenue) || 0,
+      },
     });
   } catch (err) {
     console.error('Admin dashboard overview error:', err);
@@ -141,8 +145,11 @@ router.get('/revenue-chart', async (req, res) => {
 
       result.push({
         date: dateStr,
-        revenue: existing ? existing.revenue : 0,
-        booking_count: existing ? existing.booking_count : 0
+        // PostgreSQL 의 COUNT/SUM 은 BIGINT 로 pg 드라이버가 문자열로 돌려줄 수
+        // 있다. recharts 가 수치로 인식하도록 Number 로 정규화. null/undefined 는
+        // 0 폴백.
+        revenue: existing ? (Number(existing.revenue) || 0) : 0,
+        booking_count: existing ? (Number(existing.booking_count) || 0) : 0,
       });
 
       current.setDate(current.getDate() + 1);
@@ -193,10 +200,11 @@ router.get('/booking-chart', async (req, res) => {
 
       result.push({
         date: dateStr,
-        count: existing ? existing.count : 0,
-        hotel_count: existing ? existing.hotel_count : 0,
-        ticket_count: existing ? existing.ticket_count : 0,
-        package_count: existing ? existing.package_count : 0
+        // BIGINT 문자열 → 수치 정규화 (revenue-chart 와 동일 이유).
+        count: existing ? (Number(existing.count) || 0) : 0,
+        hotel_count: existing ? (Number(existing.hotel_count) || 0) : 0,
+        ticket_count: existing ? (Number(existing.ticket_count) || 0) : 0,
+        package_count: existing ? (Number(existing.package_count) || 0) : 0,
       });
 
       current.setDate(current.getDate() + 1);
