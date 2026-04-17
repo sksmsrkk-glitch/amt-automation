@@ -3,10 +3,10 @@
   "version": "1.0.0",
   "description": "High1 Resort Foreign Visitor Booking Platform",
   "scripts": {
-    "install:all": "cd backend && npm install && cd ../frontend && npm install && cd ../admin && npm install",
+    "install:all": "cd backend && npm install && cd ../frontend && npm install --include=dev && cd ../admin && npm install --include=dev",
     "build:frontend": "cd frontend && npm run build",
     "build:admin": "cd admin && npm run build",
-    "build": "npm run build:frontend && npm run build:admin",
+    "build": "npm run install:all && npm run build:frontend && npm run build:admin",
     "start": "cd backend && npm start",
     "seed": "cd backend && npm run seed",
     "dev": "bash start.sh"
