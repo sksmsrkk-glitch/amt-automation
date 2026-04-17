@@ -4,7 +4,7 @@
 // 이 파일이 하는 일:
 //   1) Express 애플리케이션 객체를 만든다.
 //   2) CORS · JSON 바디 파서 등 공통 미들웨어를 등록한다.
-//   3) sql.js 기반 SQLite 데이터베이스를 디스크에서 읽어 초기화한다.
+//   3) PostgreSQL (pg) 커넥션 풀을 초기화한다.
 //      (DB가 준비되기 전에 라우트를 마운트하면 초기 요청에서 "Database not
 //       initialized" 예외가 터지므로 반드시 await initDb() 이후에 라우트를
 //       붙여야 한다.)
@@ -76,7 +76,7 @@ app.use(express.urlencoded({ extended: true }));
 /**
  * 서버 부트스트랩 함수.
  *
- * initDb() 가 비동기라서(sql.js 의 WebAssembly 초기화가 Promise 기반)
+ * initDb() 가 비동기라서(pg.Pool 의 연결 검증이 Promise 기반)
  * 전체 로직을 async 함수로 감싸고, 하단에서 `.catch(...)` 로 fail-fast 시킨다.
  *
  * DB 초기화 → uploads 디렉터리 보장 → 정적 파일 서빙 → 헬스체크 → 라우트
@@ -84,22 +84,12 @@ app.use(express.urlencoded({ extended: true }));
  * (에러 핸들러는 라우트 뒤에 붙어야 작동한다. Express 규칙)
  */
 async function start() {
-  // [DEBUG] 환경변수 상태 출력 (배포 디버깅용)
-  console.log('=== Environment Variables Debug ===');
-  console.log('DATABASE_URL:', process.env.DATABASE_URL ? 'SET (' + process.env.DATABASE_URL.substring(0, 30) + '...)' : 'NOT SET');
-  console.log('JWT_SECRET:', process.env.JWT_SECRET ? 'SET' : 'NOT SET');
-  console.log('PORT:', process.env.PORT || 'default');
-  console.log('NODE_ENV:', process.env.NODE_ENV || 'default');
-  console.log('Available env keys (non-npm):', Object.keys(process.env).filter(k => !k.startsWith('npm_') && !k.startsWith('_')).join(', '));
-  console.log('====================================');
-
   // 1) 데이터베이스를 먼저 초기화한다.
-  //    initDb() 는:
-  //      - backend/data 디렉터리가 없으면 만든다.
-  //      - high1.db 파일이 있으면 그 바이트를 통째로 sql.js 에 로드한다.
-  //      - 없으면 빈 인-메모리 DB 를 생성한다.
-  //      - CREATE TABLE IF NOT EXISTS + 이디엠포턴트한 ALTER 로 스키마를
-  //        최신 상태로 맞춘다.
+  //    initDb() 는 (backend/src/config/database.js):
+  //      - backend/.env 를 로드하고 process.env.DATABASE_URL 을 확인한다.
+  //        누락 시 즉시 throw → start().catch 로 fail-fast 종료.
+  //      - pg.Pool 을 생성하고 `SELECT 1` 으로 연결을 검증한다.
+  //      - 스키마는 Supabase 측에 이미 적용되어 있으므로 여기선 만들지 않는다.
   //    이 단계가 끝나기 전에 아래 라우트들이 요청을 받으면
   //    "Database not initialized" 예외가 터진다.
   await initDb();

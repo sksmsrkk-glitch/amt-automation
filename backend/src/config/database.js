@@ -327,10 +327,17 @@ async function initDb() {
   loadEnv();
 
   if (!process.env.DATABASE_URL) {
+    // DATABASE_URL 이 없으면 즉시 실패(fail-fast)한다.
+    // 운영 환경별 설정 위치 안내를 에러 메시지에 포함하여,
+    // 재배포 로그만 보고도 원인을 바로 파악할 수 있게 한다.
+    // (JWT_SECRET 검증/경고는 middleware/auth.js 에서 별도 처리)
     throw new Error(
-      'DATABASE_URL 환경 변수가 설정되지 않았습니다. ' +
-      'backend/.env 파일에 DATABASE_URL=postgres://... 를 추가하거나 ' +
-      '환경 변수를 직접 설정하세요.'
+      'DATABASE_URL 환경 변수가 설정되지 않았습니다.\n' +
+      '  - 로컬 개발: backend/.env 파일에 DATABASE_URL=postgres://... 추가\n' +
+      '  - Railway:  Service → Variables 탭에서 DATABASE_URL 등록 후 재배포\n' +
+      '  - Render:   Service → Environment 탭에서 DATABASE_URL 등록 후 재배포\n' +
+      '  - Docker:   `docker run -e DATABASE_URL=...` 또는 compose env 섹션\n' +
+      '자세한 배포 가이드는 docs/DEPLOY_RAILWAY.md 참고.'
     );
   }
 
