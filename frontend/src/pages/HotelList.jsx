@@ -4,14 +4,20 @@
 // 이 파일이 하는 일:
 //   - URL 쿼리(?checkIn, ?checkOut, ?guests)를 그대로 /hotels API 로 전달해
 //     해당 기간/인원으로 제공 가능한 호텔을 받아 카드 그리드로 보여 준다.
-//   - 추가로 로컬 검색어 필터(name/description)로 클라이언트 사이드 필터링.
+//   - 체크인/체크아웃 날짜 + 인원을 이 페이지 자체에서 바꿀 수 있는 인라인
+//     검색 폼을 제공한다. (홈으로 돌아가지 않고 재검색)
+//   - 추가로 로컬 텍스트 필터(name_en/name_cn/description_*/address)로
+//     클라이언트 사이드 필터링.
 //
 // 렌더 위치: App.jsx 의 /hotels 라우트. lazy-loaded.
 //
 // 주의:
 //   - useSearchParams 가 바뀌면 자동으로 재fetch. SearchBar 에서 navigate
-//     했을 때 그대로 반영된다.
+//     했을 때 그대로 반영된다. 인라인 폼 제출 시에도 setSearchParams 로
+//     같은 경로로 재진입한다.
 //   - 응답 shape 은 { hotels } / { data } / raw array 세 가지 모두 허용.
+//   - 백엔드가 checkIn/checkOut 을 받으면 각 호텔에 date_price 가 붙어 온다
+//     (null 가능). ProductCard 가 date_price 우선 표시한다.
 // ============================================================================
 
 import React, { useState, useEffect } from 'react'
@@ -19,6 +25,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { get } from '../utils/api'
 import ProductCard from '../components/ProductCard'
+import DateRangePicker from '../components/DateRangePicker'
 
 const styles = {
   page: {
@@ -27,7 +34,7 @@ const styles = {
     padding: 'calc(var(--header-height) + 32px) 20px 60px',
   },
   header: {
-    marginBottom: '32px',
+    marginBottom: '24px',
   },
   title: {
     fontSize: '1.8rem',
@@ -38,6 +45,54 @@ const styles = {
   subtitle: {
     fontSize: '0.95rem',
     color: 'var(--text-muted)',
+  },
+  // 인라인 재검색 폼 — 메인 히어로 SearchBar 의 호텔 탭과 기능적으로 동일.
+  // 홈으로 돌아가지 않고 바로 조건을 바꿀 수 있게 한다.
+  searchForm: {
+    display: 'flex',
+    gap: '12px',
+    alignItems: 'flex-end',
+    padding: '16px',
+    background: 'var(--white)',
+    border: '1px solid var(--border-light)',
+    borderRadius: 'var(--radius-sm)',
+    boxShadow: 'var(--shadow-sm)',
+    marginBottom: '20px',
+    flexWrap: 'wrap',
+  },
+  field: {
+    flex: 1,
+    minWidth: '160px',
+  },
+  label: {
+    display: 'block',
+    fontSize: '0.7rem',
+    fontWeight: 600,
+    color: 'var(--text-muted)',
+    marginBottom: '6px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+  },
+  select: {
+    width: '100%',
+    padding: '10px 12px',
+    border: '1.5px solid var(--border)',
+    borderRadius: 'var(--radius-sm)',
+    fontSize: '0.9rem',
+    color: 'var(--text-primary)',
+    background: 'var(--bg)',
+  },
+  searchBtn: {
+    padding: '10px 28px',
+    borderRadius: 'var(--radius-sm)',
+    background: 'var(--accent)',
+    color: 'var(--white)',
+    fontWeight: 700,
+    fontSize: '0.9rem',
+    border: 'none',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
   },
   filterBar: {
     display: 'flex',
@@ -67,16 +122,23 @@ const styles = {
 /**
  * 호텔 목록 페이지.
  * - URL 쿼리 → 백엔드 fetch → 카드 그리드 렌더.
+ * - 인라인 검색 폼으로 URL 쿼리를 교체(setSearchParams)하여 재fetch.
  * - 부작용: searchParams 변경 시 /hotels 재호출.
  */
 export default function HotelList() {
   const { t } = useTranslation()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [hotels, setHotels] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
-  // 클라이언트 사이드 인크리멘털 필터(이름/설명 부분일치).
+  // 클라이언트 사이드 인크리멘털 필터(이름/설명/주소 부분일치).
   const [searchTerm, setSearchTerm] = useState('')
+
+  // 인라인 검색 폼 로컬 상태. URL 쿼리의 현재 값으로 초기화해, 사용자가
+  // 조건을 수정 → 제출할 때까지 URL 은 바뀌지 않는다.
+  const [formCheckIn, setFormCheckIn] = useState(searchParams.get('checkIn') || '')
+  const [formCheckOut, setFormCheckOut] = useState(searchParams.get('checkOut') || '')
+  const [formGuests, setFormGuests] = useState(searchParams.get('guests') || '2')
 
   useEffect(() => {
     const fetchHotels = async () => {
@@ -102,10 +164,39 @@ export default function HotelList() {
     fetchHotels()
   }, [searchParams])
 
-  const filtered = hotels.filter(h =>
-    !searchTerm || (h.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (h.description || '').toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  // URL 쿼리가 외부에서 바뀌면(예: 홈 SearchBar 재진입) 폼 값도 동기화.
+  useEffect(() => {
+    setFormCheckIn(searchParams.get('checkIn') || '')
+    setFormCheckOut(searchParams.get('checkOut') || '')
+    setFormGuests(searchParams.get('guests') || '2')
+  }, [searchParams])
+
+  // 재검색 — 폼 값을 URL 쿼리로 반영. URL 변경이 useEffect 를 트리거해 fetch 됨.
+  const handleReSearch = (e) => {
+    e.preventDefault()
+    if (formCheckIn && formCheckOut && formCheckOut <= formCheckIn) {
+      alert(t('hotel.checkOutAfterCheckIn') || 'Check-out date must be after check-in date.')
+      return
+    }
+    const next = new URLSearchParams()
+    if (formCheckIn) next.set('checkIn', formCheckIn)
+    if (formCheckOut) next.set('checkOut', formCheckOut)
+    if (formGuests) next.set('guests', formGuests)
+    setSearchParams(next)
+  }
+
+  // 부분 일치 검색 — 실제 필드명은 name_en/name_cn/description_en/description_cn/address.
+  // 이전 구현은 존재하지 않는 h.name / h.description 을 읽어 항상 빈 문자열과
+  // 비교하고 있었기 때문에 검색이 어떤 글자를 넣어도 걸리지 않는 버그가 있었다.
+  const filtered = hotels.filter((h) => {
+    if (!searchTerm) return true
+    const needle = searchTerm.toLowerCase()
+    const haystack = [h.name_en, h.name_cn, h.description_en, h.description_cn, h.address]
+      .filter(Boolean)
+      .join(' ')
+      .toLowerCase()
+    return haystack.includes(needle)
+  })
 
   if (loading) {
     return (
@@ -133,6 +224,32 @@ export default function HotelList() {
         <h1 style={styles.title}>{t('hotel.title')}</h1>
         <p style={styles.subtitle}>{t('hotel.allHotels')}</p>
       </div>
+
+      {/* 인라인 재검색 폼 — 메인 SearchBar 와 동일 API 로 URL 갱신. */}
+      <form style={styles.searchForm} onSubmit={handleReSearch}>
+        <div style={{ ...styles.field, flex: 2 }}>
+          <label style={styles.label}>{t('hotel.checkIn')} / {t('hotel.checkOut')}</label>
+          <DateRangePicker
+            checkIn={formCheckIn}
+            checkOut={formCheckOut}
+            onChange={(ci, co) => { setFormCheckIn(ci); setFormCheckOut(co) }}
+            placeholder="Select dates"
+          />
+        </div>
+        <div style={{ ...styles.field, maxWidth: '140px', minWidth: '110px' }}>
+          <label style={styles.label}>{t('hotel.guests')}</label>
+          <select
+            style={styles.select}
+            value={formGuests}
+            onChange={(e) => setFormGuests(e.target.value)}
+          >
+            {[1, 2, 3, 4, 5, 6].map((n) => (
+              <option key={n} value={n}>{n} {n === 1 ? t('common.person') : t('common.persons')}</option>
+            ))}
+          </select>
+        </div>
+        <button type="submit" style={styles.searchBtn}>{t('common.search')}</button>
+      </form>
 
       <div style={styles.filterBar}>
         <input

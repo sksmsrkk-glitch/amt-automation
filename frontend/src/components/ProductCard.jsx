@@ -246,10 +246,14 @@ export default function ProductCard({ type = 'hotel', data, onClick }) {
     }
   }
 
-  // 호텔은 객실 타입별 가격 중 최저가를 "부터(from)" 가격으로 쓴다.
-  // 티켓/패키지는 상품 자체에 단일 가격이 있다.
-  // 과거 camelCase 필드(basePrice) 와 현재 snake_case(base_price) 둘 다 지원.
+  // 가격 결정 우선순위:
+  //   1) data.date_price — 리스트 API 가 날짜 파라미터를 받아 계산해 준 값.
+  //      호텔: 기간 합산 최저가. 티켓/패키지: 해당 날짜 단가.
+  //      null 이면 해당 날짜에 판매 불가 → base 가격으로 폴백.
+  //   2) 호텔 상세 응답의 roomTypes 배열 최저가
+  //   3) 상품 자체의 base_price (과거 camelCase basePrice 도 지원)
   const getPrice = () => {
+    if (data.date_price != null) return data.date_price
     if (type === 'hotel') {
       if (data.roomTypes && data.roomTypes.length > 0) {
         const minPrice = Math.min(...data.roomTypes.map(r => r.price || r.basePrice || r.base_price || 0))
@@ -261,7 +265,14 @@ export default function ProductCard({ type = 'hotel', data, onClick }) {
   }
 
   const getPriceUnit = () => {
-    if (type === 'hotel') return `/ ${t('common.night')}`
+    // 호텔에 기간 전체 합산 date_price 가 붙어 있으면 "/박" 대신 총 N박 표시.
+    // 그 외에는 기존 단가 표시(/박, /인).
+    if (type === 'hotel') {
+      if (data.date_price != null && data.nights) {
+        return `/ ${data.nights} ${t('common.night')}`
+      }
+      return `/ ${t('common.night')}`
+    }
     if (type === 'ticket') return `/ ${t('common.person')}`
     return ''
   }

@@ -5,9 +5,12 @@
 //   - 카테고리 탭(all/ski/activity/entertainment/wellness)으로 /tickets
 //     API 를 재호출해 결과를 카드 그리드로 렌더한다.
 //   - URL 쿼리 ?date 도 그대로 전달해 해당 날짜 가용 티켓만 받을 수 있다.
-//   - 로컬 검색어 입력으로 추가 필터링.
+//   - 인라인 날짜 재검색 폼(카테고리 + 날짜)으로 홈으로 돌아가지 않고도
+//     조건을 변경할 수 있다.
+//   - 로컬 텍스트 필터(name_en/name_cn/description_*)로 추가 필터링.
 //
 // 렌더 위치: /tickets 라우트. lazy-loaded.
+// 주의: 백엔드가 date 를 받으면 각 티켓에 date_price 가 붙어 온다.
 // ============================================================================
 
 import React, { useState, useEffect } from 'react'
@@ -15,6 +18,7 @@ import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { get } from '../utils/api'
 import ProductCard from '../components/ProductCard'
+import SingleDatePicker from '../components/SingleDatePicker'
 
 const styles = {
   page: {
@@ -23,7 +27,7 @@ const styles = {
     padding: 'calc(var(--header-height) + 32px) 20px 60px',
   },
   header: {
-    marginBottom: '32px',
+    marginBottom: '24px',
   },
   title: {
     fontSize: '1.8rem',
@@ -34,6 +38,52 @@ const styles = {
   subtitle: {
     fontSize: '0.95rem',
     color: 'var(--text-muted)',
+  },
+  searchForm: {
+    display: 'flex',
+    gap: '12px',
+    alignItems: 'flex-end',
+    padding: '16px',
+    background: 'var(--white)',
+    border: '1px solid var(--border-light)',
+    borderRadius: 'var(--radius-sm)',
+    boxShadow: 'var(--shadow-sm)',
+    marginBottom: '20px',
+    flexWrap: 'wrap',
+  },
+  field: {
+    flex: 1,
+    minWidth: '160px',
+  },
+  label: {
+    display: 'block',
+    fontSize: '0.7rem',
+    fontWeight: 600,
+    color: 'var(--text-muted)',
+    marginBottom: '6px',
+    textTransform: 'uppercase',
+    letterSpacing: '0.5px',
+  },
+  select: {
+    width: '100%',
+    padding: '10px 12px',
+    border: '1.5px solid var(--border)',
+    borderRadius: 'var(--radius-sm)',
+    fontSize: '0.9rem',
+    color: 'var(--text-primary)',
+    background: 'var(--bg)',
+  },
+  searchBtn: {
+    padding: '10px 28px',
+    borderRadius: 'var(--radius-sm)',
+    background: 'var(--accent)',
+    color: 'var(--white)',
+    fontWeight: 700,
+    fontSize: '0.9rem',
+    border: 'none',
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+    flexShrink: 0,
   },
   controls: {
     display: 'flex',
@@ -95,12 +145,15 @@ const categories = ['all', 'ski', 'activity', 'entertainment', 'wellness']
  */
 export default function TicketList() {
   const { t } = useTranslation()
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const [tickets, setTickets] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
   const [activeCategory, setActiveCategory] = useState(searchParams.get('category') || 'all')
   const [searchTerm, setSearchTerm] = useState('')
+
+  // 인라인 날짜 재검색 폼 상태. URL 의 date 로 초기화.
+  const [formDate, setFormDate] = useState(searchParams.get('date') || '')
 
   useEffect(() => {
     const fetchTickets = async () => {
@@ -123,11 +176,38 @@ export default function TicketList() {
     fetchTickets()
   }, [activeCategory, searchParams])
 
-  const filtered = tickets.filter(t_item =>
-    !searchTerm ||
-    (t_item.name || '').toLowerCase().includes(searchTerm.toLowerCase()) ||
-    (t_item.description || '').toLowerCase().includes(searchTerm.toLowerCase())
-  )
+  // URL 이 외부에서 바뀌면 폼도 동기화. (홈에서 다시 진입한 경우 등)
+  useEffect(() => {
+    setFormDate(searchParams.get('date') || '')
+    const urlCategory = searchParams.get('category')
+    if (urlCategory && urlCategory !== activeCategory) setActiveCategory(urlCategory)
+  // activeCategory 는 의도적으로 deps 에서 제외 — URL 기반 동기화만 수행.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchParams])
+
+  const handleReSearch = (e) => {
+    e.preventDefault()
+    const next = new URLSearchParams()
+    if (activeCategory && activeCategory !== 'all') next.set('category', activeCategory)
+    if (formDate) next.set('date', formDate)
+    setSearchParams(next)
+  }
+
+  // 부분 일치 검색 — 실제 필드명은 name_en/name_cn/description_en/description_cn.
+  // 이전 구현은 존재하지 않는 t_item.name / .description 을 읽어 빈 문자열과
+  // 비교해 어떤 입력도 매치하지 않는 버그가 있었다.
+  const filtered = tickets.filter((t_item) => {
+    if (!searchTerm) return true
+    const needle = searchTerm.toLowerCase()
+    const haystack = [
+      t_item.name_en,
+      t_item.name_cn,
+      t_item.description_en,
+      t_item.description_cn,
+      t_item.location,
+    ].filter(Boolean).join(' ').toLowerCase()
+    return haystack.includes(needle)
+  })
 
   const getCategoryLabel = (cat) => {
     if (cat === 'all') return t('ticket.allCategories')
@@ -156,6 +236,19 @@ export default function TicketList() {
         <h1 style={styles.title}>{t('ticket.title')}</h1>
         <p style={styles.subtitle}>{t('ticket.searchTickets')}</p>
       </div>
+
+      {/* 인라인 재검색 폼 — 날짜 + (선택한 카테고리 탭)로 URL 갱신. */}
+      <form style={styles.searchForm} onSubmit={handleReSearch}>
+        <div style={styles.field}>
+          <label style={styles.label}>{t('ticket.selectDate')}</label>
+          <SingleDatePicker
+            value={formDate}
+            onChange={(d) => setFormDate(d)}
+            placeholder="Select date"
+          />
+        </div>
+        <button type="submit" style={styles.searchBtn}>{t('common.search')}</button>
+      </form>
 
       <div style={styles.controls}>
         <div style={styles.tabs}>
