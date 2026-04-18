@@ -164,8 +164,14 @@ export default function ImageUploader({ images = [], onChange, maxImages = 5 }) 
     }
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ message: 'Upload failed' }))
-      throw new Error(err.message || `HTTP ${res.status}`)
+      // 백엔드 upload 라우트는 { error: "..." } 형태로 응답한다 (일부 구식
+      // 엔드포인트는 message 로도). 둘 다 안전하게 읽어서 사용자에게 실제
+      // 원인(예: "Supabase Storage 가 구성되지 않았습니다", "Bucket not found")
+      // 이 노출되도록. 이전에는 message 만 읽어 모든 실패가 'HTTP 500' 으로
+      // 뭉뚱그려 보여서 운영 디버깅이 어려웠다.
+      const body = await res.json().catch(() => ({}))
+      const detail = body.error || body.message
+      throw new Error(detail || `HTTP ${res.status}`)
     }
 
     const data = await res.json()
