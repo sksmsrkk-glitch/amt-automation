@@ -5,50 +5,50 @@
 //   POST /           — 단일 이미지 업로드 (multipart field: "image")
 //   POST /multiple   — 최대 10장 다중 업로드 (multipart field: "images")
 //
-// multer disk storage 를 사용해 backend/uploads/ 디렉터리에 직접 저장한다.
-// 이 디렉터리는 index.js 에서 express.static 으로 `/uploads` 경로에 마운트돼
-// 업로드 즉시 브라우저가 `/uploads/<filename>` 으로 읽을 수 있다.
+// 저장소: Supabase Storage (영구). 과거에는 로컬 디스크(backend/uploads/) 에
+// 저장했지만 Railway 등 컨테이너 플랫폼의 임시 파일시스템 특성상 몇 시간마다
+// 업로드된 이미지가 유실되는 문제가 있었다. 그래서 영구 CDN URL 을 주는
+// Supabase Storage 로 이전했다. 자세한 원인과 대안 비교는
+// docs/SUPABASE_STORAGE_SETUP.md 참고.
+//
+// 파일 흐름:
+//   브라우저 → multer (memoryStorage) → Buffer → Supabase Storage → public URL
+//   반환된 URL 은 https://<project>.supabase.co/storage/v1/object/public/<bucket>/<filename>
+//   형태의 절대 경로. 기존 '/uploads/xxx' 상대 경로 대신 이 절대 URL 이 DB 에 저장된다.
 //
 // 제한:
 //   - 파일 크기: 10MB
 //   - MIME: jpeg / jpg / png / gif / webp (확장자와 mimetype 모두 검사)
 //
-// 주의: 업로드 후 파일 삭제 엔드포인트는 현재 없다. 테스트용 업로드가 쌓일
-// 수 있으므로 주기적으로 정리가 필요하다.
+// 환경 변수 필요:
+//   - SUPABASE_URL, SUPABASE_SERVICE_KEY (config/supabase-storage.js 참고)
+//
+// 주의:
+//   - 업로드 후 파일 삭제 엔드포인트는 현재 없다. 테스트용 업로드가 쌓일 수
+//     있으므로 주기적으로 Supabase Storage 대시보드에서 정리.
+//   - 기존에 DB 에 저장된 '/uploads/xxx' 경로는 이미 파일이 사라진 상태라
+//     브라우저에서 404. 프런트엔드는 404 이미지를 빈 플레이스홀더로 처리함
+//     (이번 PR 스코프 밖의 별도 작업).
 // ============================================================================
 
 const express = require('express');
 const multer = require('multer');
 const path = require('path');
-const fs = require('fs');
+const crypto = require('crypto');
 const { authenticate, requireAdmin } = require('../../middleware/auth');
+const { uploadImage } = require('../../config/supabase-storage');
 
 const router = express.Router();
 // 관리자 인증 필수. 업로드는 공개 기능이 아니다.
 router.use(authenticate, requireAdmin);
 
 // ----------------------------------------------------------------------------
-// multer 디스크 스토리지 설정
+// multer 메모리 스토리지
 // ----------------------------------------------------------------------------
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    // backend/uploads. __dirname 이 routes/admin 이므로 네 단계 위.
-    // index.js 에서도 동일 경로를 정적 서빙하므로 여기서 바꾸면 그쪽도
-    // 맞춰야 한다.
-    const uploadDir = path.join(__dirname, '..', '..', '..', 'uploads');
-    if (!fs.existsSync(uploadDir)) {
-      fs.mkdirSync(uploadDir, { recursive: true });
-    }
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    // 충돌 방지용 파일명. timestamp + 9자리 랜덤 + 확장자.
-    // 원본 파일 이름을 그대로 쓰면 동일 이름 업로드 시 덮어쓰기 위험 있음.
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    cb(null, uniqueSuffix + ext);
-  }
-});
+// Supabase Storage 로 바로 흘려 보내기 위해 디스크 대신 메모리에 Buffer 로
+// 받는다. 파일 크기 제한(10MB) 이 걸려 있어 메모리 압박은 크지 않다.
+// ----------------------------------------------------------------------------
+const storage = multer.memoryStorage();
 
 const upload = multer({
   storage,
@@ -62,37 +62,78 @@ const upload = multer({
     const mime = allowed.test(file.mimetype);
     if (ext && mime) cb(null, true);
     else cb(new Error('Only image files are allowed'));
-  }
+  },
 });
+
+/**
+ * 충돌 방지용 유니크 파일명 생성.
+ * 예: 1715342891823-ab3f7c2d.jpg
+ * - 앞의 timestamp 는 정렬 보조 / 디버깅용.
+ * - 뒤의 8-hex 는 같은 ms 에 다중 업로드돼도 충돌하지 않도록.
+ * - 확장자는 originalname 에서 복사해 Supabase 에서 MIME 감지가 쉽도록.
+ *
+ * @param {string} originalName - multer file.originalname
+ * @returns {string} 'YYYYMMDD...' 아닌 단순 숫자 기반 유니크 이름
+ */
+function buildUniqueFilename(originalName) {
+  const ext = path.extname(originalName).toLowerCase() || '.jpg';
+  const rand = crypto.randomBytes(4).toString('hex');
+  return `${Date.now()}-${rand}${ext}`;
+}
 
 /**
  * POST / — 단일 이미지 업로드.
  *
  * form field: image (multipart/form-data)
- * 응답: 200 { url, filename, size } | 400 파일 없음
+ * 응답: 200 { url, filename, size }
+ *       400 파일 없음
+ *       500 업로드 실패 (Supabase 설정 누락 포함)
  *
- * 반환되는 url 은 `/uploads/<filename>` 형태의 절대 경로(프런트 도메인 기준).
+ * 반환되는 url 은 Supabase Storage 의 절대 공개 URL.
  */
-router.post('/', upload.single('image'), (req, res) => {
+router.post('/', upload.single('image'), async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No image file provided' });
-  const url = `/uploads/${req.file.filename}`;
-  res.json({ url, filename: req.file.filename, size: req.file.size });
+
+  try {
+    const filename = buildUniqueFilename(req.file.originalname);
+    const url = await uploadImage(filename, req.file.buffer, req.file.mimetype);
+    res.json({ url, filename, size: req.file.size });
+  } catch (err) {
+    console.error('Upload error:', err);
+    // Supabase 구성 오류 메시지는 운영 디버깅에 필요하므로 그대로 전달.
+    res.status(500).json({ error: err.message || 'Upload failed' });
+  }
 });
 
 /**
  * POST /multiple — 다중 이미지 업로드 (최대 10장).
  *
  * form field: images (반복)
- * 응답: 200 { files: [{ url, filename, size }, ...] } | 400 파일 없음
+ * 응답: 200 { files: [{ url, filename, size }, ...] }
+ *       400 파일 없음 | 500 업로드 실패
+ *
+ * 각 파일은 Supabase Storage 에 순차적으로 올리고(병렬 업로드 시 race 위험이
+ * 없지만 rate-limit 고려해 직렬), 하나라도 실패하면 이미 올라간 파일은 남겨 둔
+ * 채 500 반환. 프런트엔드(ImageUploader) 가 성공 응답만 상태로 반영하므로
+ * 부분 실패 시 정합성은 자동으로 유지된다.
  */
-router.post('/multiple', upload.array('images', 10), (req, res) => {
-  if (!req.files || req.files.length === 0) return res.status(400).json({ error: 'No images provided' });
-  const files = req.files.map(f => ({
-    url: `/uploads/${f.filename}`,
-    filename: f.filename,
-    size: f.size
-  }));
-  res.json({ files });
+router.post('/multiple', upload.array('images', 10), async (req, res) => {
+  if (!req.files || req.files.length === 0) {
+    return res.status(400).json({ error: 'No images provided' });
+  }
+
+  try {
+    const files = [];
+    for (const f of req.files) {
+      const filename = buildUniqueFilename(f.originalname);
+      const url = await uploadImage(filename, f.buffer, f.mimetype);
+      files.push({ url, filename, size: f.size });
+    }
+    res.json({ files });
+  } catch (err) {
+    console.error('Multiple upload error:', err);
+    res.status(500).json({ error: err.message || 'Upload failed' });
+  }
 });
 
 module.exports = router;
