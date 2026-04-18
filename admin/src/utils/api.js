@@ -76,8 +76,12 @@ async function request(method, path, body, options = {}) {
   }
   if (!res.ok) {
     // 서버가 JSON 에러 바디를 안 줄 수도 있어 catch 로 기본 메시지 fallback.
-    const err = await res.json().catch(() => ({ message: 'Request failed' }))
-    throw new Error(err.message || `HTTP ${res.status}`)
+    // 백엔드는 { error: "..." } 로 응답하고 일부 엔드포인트는 { message: "..." }
+    // 로도 응답하므로 둘 다 읽는다. 이전 구현은 message 만 읽어 실제 원인이
+    // 전부 "HTTP 500" 으로만 표시되는 문제가 있었다.
+    const body = await res.json().catch(() => ({}))
+    const detail = body.error || body.message
+    throw new Error(detail || `HTTP ${res.status}`)
   }
   // 204 No Content (주로 DELETE 응답) 은 본문이 없으므로 파싱하면 안 된다.
   if (res.status === 204) return null
